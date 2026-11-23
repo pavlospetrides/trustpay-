@@ -1,14 +1,18 @@
 # Team status
 
-Updated 23 November 2026 during repository bootstrap.
+Updated 23 November 2026 for the full-project import branch.
 
-## Verified in GitHub
+## Branch status
 
-The repository was empty at setup and the connected collaborator has push access. This bootstrap establishes the shared documentation and task templates. Application source and runtime checks are pending. The reported MVP is awaiting import. The repository is public.
+The `import/full-project` branch imports the existing FastAPI/SQLite backend, legacy HTML client, and Next.js Crystal frontend while preserving the bootstrap documentation from `main`. It is pending team review and merge. The repository is public; the demo uses synthetic fixtures and contains no real Jinius connection, production authentication, or payment transfer capability.
+
+## Verification on the import branch
+
+On Windows with Python 3.14 and Node.js, `py -m pytest tests -q` passed 17 tests with two dependency warnings. In `frontend/`, `npm run lint`, `npm run typecheck`, `npm run test` (7 tests), and `npm run build` all passed. The actual FastAPI schema is exported as [openapi.json](openapi.json); policy rules are implemented in [app/risk.py](../app/risk.py) and the API surface is summarized in [API_CONTRACT.md](../API_CONTRACT.md). See the root and frontend READMEs for installation and run commands. These checks establish local demo behavior; they do not establish production security or provider integration.
 
 ## First work
 
-1. Claim and import the existing backend MVP, preserving its provenance and working commands.
+1. Review and merge the imported backend and frontend, preserving source provenance and working commands.
 2. Confirm participant Jinius API fields, access and permitted sandbox operations.
 3. Agree the actual API contract, supplier trust history and case approval states before frontend integration.
 4. Build the changed-account demo with deterministic rules and human verification, then record acceptance evidence.

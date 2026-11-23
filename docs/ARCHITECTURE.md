@@ -1,29 +1,56 @@
-# Proposed architecture
+# TrustPay AI Architecture / Build Plan
 
-Status is proposed pending inspection of the existing MVP. Preserve working behavior while documenting the actual module paths and API schema after import.
+## Current end-to-end data flow
 
-## Flow
+```
+Browser (Next.js or legacy HTML + JS)
+       |
+       | JSON REST API
+       v
+FastAPI (request validation)
+       |
+       +--> SQLite history by supplier
+       |       |
+       |       v
+       +--> Risk engine (pure deterministic rules)
+       |       |
+       |       v
+       +--> Assessment + evidence + server-controlled state
+       |       |
+       |       v
+       +--> Append-style SQLite demo audit events
 
-Invoice upload or permitted Jinius ingestion → validated invoice version → supplier/account history lookup → deterministic risk assessment → case review → independent verification → authorized human approval → recorded status.
+No path to a bank payment system.
+```
 
-The FastAPI service owns validation, assessment and workflow transitions. SQLite is the reported starting store. The proposed Next.js client presents server results. PostgreSQL/Supabase is a proposed storage/auth choice to evaluate against team needs and migration work. Keep policy scoring and permission decisions deterministic. AI may extract candidate fields or draft explanations with source references, followed by validation.
+This is the imported local demo architecture. The production records, business isolation, authorization, and integration requirements remain proposed in [the team decision log](DECISIONS.md) and [acceptance plan](ACCEPTANCE.md). The demo does not yet implement those guarantees.
 
-## Records and invariants
+## State transitions
 
-| Record | Data and constraint |
-| --- | --- |
-| Supplier | Stable internal identity and original source identifiers scoped to a business |
-| Supplier account | Candidate/verified state, provenance, verification event and account history |
-| Invoice version | Original evidence, supplier, amount, currency, account and content version |
-| Assessment | Rule/policy version, input version, triggered rules and evidence |
-| Review decision | Authorized actor, time, reason, evidence and exact assessed version |
-| Audit event | Business/case scope, actor, action and referenced versions |
-| Integration receipt | Provider, mode, request identifier and sanitized outcome |
+- `ready` → `approved` (low risk, human demo approval).
+- `needs_review` / `hold` → `ready` (with recorded independent evidence) → `approved` (separate simulated actor).
+- `blocked` (duplicate paid invoice) → cannot verify or approve within this demo.
+- `approved` → cannot be approved or held again.
+- Every accepted change adds an audit event in SQLite.
 
-Use decimal monetary values or integer minor units with explicit currency. Enforce business-level data isolation at server reads and writes. Approval and edits use transactions/version checks so concurrent changes cannot reuse a stale approval. Duplicate detection needs business/supplier/invoice identity and explicit handling for legitimate revisions and credit notes. Replayed ingestion must be idempotent.
+## Suggested hackathon priorities
 
-A supplied invoice cannot update verified supplier bank details. Verification contacts come from a previously trusted source. Record the verification outcome, with sensitive evidence stored outside public artifacts. Access rules and retention details need an implementation decision after source import.
+**P0 (before demo):** lock the core story, hard-block changed IBAN until evidence, duplicate invoice hard-block, ensure no accidental money movement, demo test flows, source labeling and no invented APIs.
 
-## API contracts
+**P1 (after official Jinius sandbox documentation):** one genuine Jinius read integration (invoice or supplier data), normalized data mapping, robust retry/idempotency, visible last-sync/status, optional genuine remittance historical read if permitted. No live payment required to demonstrate value.
 
-Import the FastAPI source and export its actual OpenAPI schema before the frontend depends on endpoints. Agree the invoice, assessment and case transition payloads in the API-contract issue. Document error states and authorization behavior alongside the contract. Implement only the integration operations supported by verified Jinius documentation.
+**P2:** AI OCR of uploaded synthetic documents with source citations; careful grounded explanations; reconciliation, RBAC and legitimate maker/checker identities; PostgreSQL tenant isolation and RLS; deployment.
+
+## Evaluation-friendly demonstration (90 sec)
+
+1. Show one synthetic imported invoice from the Jinius adapter, label as *mock*.
+2. Show 14 historical payments all using the same account.
+3. Show newly requested account +75 risk signal and the backend refusing direct approval.
+4. Record a simulated independent callback; only then show the separate finance manager approval.
+5. Show an exact duplicate paid invoice blocked even after trying to approve.
+6. Open Audit Trail to prove persistent event record.
+7. For the final hackathon demo, replace step 1 with a **genuinely connected Jinius sandbox read** and show a live request outcome if officially available.
+
+## Business positioning
+
+Target ICP: 10–500-employee companies managing recurring supplier payments. Value: reduce invoice-redirection and duplicate-payment risk by providing transaction-history context at the decision point. Do not promise guaranteed fraud prevention, proof of account ownership or regulatory compliance without evidence.
