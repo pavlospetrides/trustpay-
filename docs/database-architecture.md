@@ -33,4 +33,4 @@ RLS is enabled on every tenant-owned table. A locked `SECURITY DEFINER` membersh
 
 ## Current limits
 
-There is no real Jinius connection, OCR/AI decision authority, production deployment, invoice-edit workflow, automated migration of existing SQLite records, or production retention policy. The PostgreSQL adapter opens a connection per operation; production scale needs a reviewed pool and connection limit. A passing parser check does not replace applying migrations and running pgTAP and API tests on a disposable Supabase instance.
+There is no real Jinius connection, OCR/AI decision authority, production deployment, invoice-edit workflow, automated migration of existing SQLite records, or production retention policy. The PostgreSQL adapter opens a connection per operation; production scale needs a reviewed pool and connection limit. The migrations and security tests passed on a disposable local Supabase stack in CI; a hosted development project has not been configured or tested.

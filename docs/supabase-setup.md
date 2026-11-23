@@ -1,6 +1,6 @@
 # Supabase development setup
 
-Use a **dedicated development project** or local Supabase stack. Do not run these commands against a shared or production database. The migrations are additive and are not applied automatically by FastAPI. This checkout has no configured Supabase project, PostgreSQL server, or Docker stack; live database verification remains pending.
+Use a **dedicated development project** or local Supabase stack. Do not run these commands against a shared or production database. The migrations are additive and are not applied automatically by FastAPI. This checkout has no configured Supabase project, PostgreSQL server, or Docker stack. GitHub Actions applies the migrations and runs pgTAP plus API integration against a disposable local Supabase stack on the feature PR.
 
 ## 1. Prepare a local stack or designated development project
 
