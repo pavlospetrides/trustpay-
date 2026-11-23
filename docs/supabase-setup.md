@@ -1,6 +1,6 @@
 # Supabase development setup
 
-Use a **dedicated development project** or local Supabase stack. Do not run these commands against a shared or production database. The migrations are additive and are not applied automatically by FastAPI. This checkout has no configured Supabase project, PostgreSQL server, or Docker stack. GitHub Actions applies the migrations and runs pgTAP plus API integration against a disposable local Supabase stack on the feature PR.
+Use a **dedicated development project** or local Supabase stack. Do not run these commands against a shared or production database. The migrations are additive and are not applied automatically by FastAPI. GitHub Actions applies the migrations and runs pgTAP plus API integration against a disposable local Supabase stack on the feature PR.
 
 ## 1. Prepare a local stack or designated development project
 
@@ -13,6 +13,8 @@ npx supabase test db
 ```
 
 `supabase/config.toml` disables automatic seed execution. The `db reset` command is destructive to the **local** stack; use it only for a disposable local instance. The pgTAP suite lives at `supabase/tests/database/tenant_policies_test.sql`. For a remote development project, first confirm its project reference and migration history, then run `npx supabase link --project-ref <DEV_PROJECT_REF>` and `npx supabase db push`. Do not run `db reset` remotely.
+
+The configured hosted development project has the application schema, but its `supabase_migrations.schema_migrations` table was absent when checked. Reconcile the existing schema with the CLI migration history before a future `db push`; do not replay `create table` migrations into an already populated database.
 
 ## 2. Set server-only configuration
 
