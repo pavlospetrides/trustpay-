@@ -1,6 +1,8 @@
 name: TrustPay full-stack checks
 
 on:
+  push:
+    branches: [feat/supabase-phase1]
   pull_request:
     branches: [main]
   workflow_dispatch:
