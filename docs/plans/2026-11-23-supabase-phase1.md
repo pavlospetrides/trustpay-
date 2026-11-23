@@ -28,24 +28,24 @@
 
 ### Task 1: Schema and policies
 
-- [ ] Add tables, constraints, RLS, storage bucket, and least-privilege grants in migrations.
-- [ ] Add pgTAP tests for cross-tenant access, role checks, and immutable policy records.
-- [ ] Validate migration syntax and run pgTAP against local Supabase if available.
+- [x] Add tables, constraints, RLS, storage bucket, and least-privilege grants in migrations.
+- [x] Add pgTAP tests for cross-tenant access, role checks, and immutable policy records.
+- [x] Validate migration syntax and run pgTAP against a disposable local Supabase stack in CI.
 
 ### Task 2: Backend persistence and security
 
-- [ ] Write failing tests for IBAN normalization, encryption, Auth validation and approval guards.
-- [ ] Implement credential configuration, Auth validation, PostgreSQL repository and atomic transitions.
-- [ ] Run new and existing Python tests.
+- [x] Write failing tests for IBAN normalization, encryption, Auth validation and approval guards.
+- [x] Implement credential configuration, Auth validation, PostgreSQL repository and atomic transitions.
+- [x] Run new and existing Python tests.
 
 ### Task 3: Auth and private documents
 
-- [ ] Add frontend login, logout, route protection and bearer-token forwarding.
-- [ ] Add server-validated private invoice document upload and authorized retrieval.
-- [ ] Run frontend tests, TypeScript, lint and production build.
+- [x] Add frontend login, logout, route protection and bearer-token forwarding.
+- [x] Add server-validated private invoice document upload and authorized retrieval.
+- [x] Run frontend tests, TypeScript, lint and production build.
 
 ### Task 4: Demo and delivery
 
-- [ ] Add nonautomatic synthetic seed data including a 14-payment supplier.
-- [ ] Document architecture, setup, limitations, and exact checks.
-- [ ] Review diff and secrets, commit a feature branch, push and open a PR for human review.
+- [x] Add nonautomatic synthetic seed data including a 14-payment supplier.
+- [x] Document architecture, setup, limitations, and exact checks.
+- [x] Review diff and secrets, commit a feature branch, push and open a PR for human review.

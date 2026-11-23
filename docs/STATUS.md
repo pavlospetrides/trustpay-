@@ -10,11 +10,11 @@ The full FastAPI/SQLite backend, legacy HTML client, and Next.js Crystal fronten
 
 On Windows with Python 3.14 and Node.js, `py -m pytest tests -q` passed 17 tests with two dependency warnings. In `frontend/`, `npm run lint`, `npm run typecheck`, `npm run test` (7 tests), and `npm run build` all passed. The actual FastAPI schema is exported as [openapi.json](openapi.json); policy rules are implemented in [app/risk.py](../app/risk.py) and the API surface is summarized in [API_CONTRACT.md](../API_CONTRACT.md). See the root and frontend READMEs for installation and run commands. These checks establish local demo behavior; they do not establish production security or provider integration.
 
-For the Supabase branch, the local Python suite reports 27 passed and 1 PostgreSQL integration test skipped because no local database is configured. The frontend suite reports 9 passed; a clean npm 10 install, TypeScript, ESLint and Next.js build pass locally. GitHub Actions database job on PR #9 applied both migrations to a disposable local Supabase stack, passed 13 pgTAP tests, and passed the PostgreSQL API integration scenario. The app CI job initially found an npm lockfile mismatch on Linux; the corrected lockfile awaits a new CI run. No migration has been applied to a hosted project. See [Supabase setup](supabase-setup.md) and [database architecture](database-architecture.md).
+For the Supabase branch, the local Python suite reports 27 passed and 1 PostgreSQL integration test skipped because no local database is configured. The frontend suite reports 9 passed; a clean npm 10 install, TypeScript, ESLint and Next.js build pass locally. GitHub Actions run [45161673764](https://github.com/pavlospetrides/trustpay-/actions/runs/45161673764) passed both jobs: the app suite, frontend checks and build, both migrations on a disposable local Supabase stack, 13 pgTAP tests, and the PostgreSQL API integration scenario. No migration has been applied to a hosted project. See [Supabase setup](supabase-setup.md) and [database architecture](database-architecture.md).
 
 ## First work
 
-1. Validate the Supabase branch migrations, RLS and end-to-end API checks on a disposable project, then obtain human review before merge.
+1. Configure a designated hosted development Supabase project, verify browser sign-in and document storage against it, then obtain human review before merge.
 2. Confirm participant Jinius API fields, access and permitted sandbox operations.
 3. Agree the actual API contract, supplier trust history and case approval states before frontend integration.
 4. Build the changed-account demo with deterministic rules and human verification, then record acceptance evidence.
