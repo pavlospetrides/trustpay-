@@ -6,6 +6,7 @@ from decimal import Decimal
 from uuid import UUID
 
 import psycopg
+from dotenv import load_dotenv
 
 from app.postgres_store import PostgresStore, Principal
 from app.security import AccountProtector
@@ -30,6 +31,7 @@ def synthetic_iban(number: int) -> str:
 
 
 def main() -> None:
+    load_dotenv(Path(__file__).resolve().parent.parent / ".env", override=False)
     if os.environ.get("TRUSTPAY_ENVIRONMENT") != "development" or os.environ.get("TRUSTPAY_SEED_CONFIRM") != "development":
         raise RuntimeError("Synthetic seed requires TRUSTPAY_ENVIRONMENT=development and TRUSTPAY_SEED_CONFIRM=development")
     owner = UUID(os.environ["TRUSTPAY_DEMO_OWNER_ID"])
