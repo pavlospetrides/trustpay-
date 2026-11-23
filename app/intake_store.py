@@ -74,6 +74,7 @@ class IntakeStore:
                 "create_new_supplier": payload.get("create_new_supplier", False),
                 "uncertain_fields": row["uncertain_fields"],
                 "method": row["extraction_method"], "error_code": row["error_code"],
+                "extraction_attempts": row["extraction_attempts"],
                 "explanation": row["explanation"], "explanation_method": row["explanation_method"],
                 "invoice_id": row["invoice_public_id"],
                 "content_type": row["content_type"], "size_bytes": row["size_bytes"],
@@ -99,6 +100,12 @@ class IntakeStore:
                 if existing["sha256"].strip() != digest:
                     raise FileExistsError("Idempotency key already used for a different document")
                 return self.get(existing["id"], principal)
+        with self.store.connect() as con:
+            recent = con.execute("""select count(*) as total from public.invoice_intakes
+                where organization_id=%s and uploaded_by=%s and created_at > now() - interval '1 hour'""",
+                (principal.organization_id, principal.user_id)).fetchone()["total"]
+        if recent >= 20:
+            raise PermissionError("Hourly invoice intake limit reached")
         result = extract_invoice(data, content_type, self.provider)
         intake_id, document_id = uuid4(), uuid4()
         path = f"{principal.organization_id}/{intake_id}/{document_id}{extension}"
@@ -126,6 +133,8 @@ class IntakeStore:
             row = self._row(con, intake_id, principal)
         if row["status"] not in {"provider_unavailable", "needs_review"}:
             raise ValueError("This intake cannot be re-extracted")
+        if row["extraction_attempts"] >= 3:
+            raise PermissionError("Invoice extraction retry limit reached")
         data = self.storage.download(row["storage_path"])
         result = extract_invoice(data, row["content_type"], self.provider)
         encrypted = self.cipher.seal({"fields": result.fields.model_dump()}, principal.organization_id, intake_id)
@@ -133,8 +142,11 @@ class IntakeStore:
             current = self._row(con, intake_id, principal, lock=True)
             if current["status"] not in {"provider_unavailable", "needs_review"}:
                 raise ValueError("This intake has already been reviewed")
+            if current["extraction_attempts"] >= 3:
+                raise PermissionError("Invoice extraction retry limit reached")
             con.execute("""update public.invoice_intakes set status=%s,fields_encrypted=%s,
-                uncertain_fields=%s,extraction_method=%s,error_code=%s,updated_at=now()
+                uncertain_fields=%s,extraction_method=%s,error_code=%s,
+                extraction_attempts=extraction_attempts+1,updated_at=now()
                 where organization_id=%s and id=%s""",
                 (result.status, encrypted, json.dumps(result.uncertain_fields), result.method,
                  result.error_code, principal.organization_id, intake_id))

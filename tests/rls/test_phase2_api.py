@@ -86,6 +86,10 @@ IBAN: {synthetic_iban(99)}
     assert conflict.status_code == 409
     path = f"/api/v1/invoice-intakes/{draft['id']}"
     assert client.get(path, headers=headers("outsider", org_b)).status_code == 404
+    for attempt in (2, 3):
+        extracted = client.post(path + "/extract", headers=headers("maker", org_a))
+        assert extracted.status_code == 200 and extracted.json()["extraction_attempts"] == attempt
+    assert client.post(path + "/extract", headers=headers("maker", org_a)).status_code == 429
     review = client.patch(path, json={"fields": draft["fields"], "supplier_id": "TEST-SUP",
                                       "create_new_supplier": False}, headers=headers("maker", org_a))
     assert review.status_code == 200, review.text

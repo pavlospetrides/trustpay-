@@ -150,7 +150,7 @@ def create_app(database_path: str | None = None) -> FastAPI:
             raise HTTPException(403, "Invoice intake requires PostgreSQL mode")
         try: return await run_in_threadpool(intake.retry, intake_id, user)
         except LookupError as exc: raise HTTPException(404, str(exc)) from exc
-        except PermissionError as exc: raise HTTPException(403, str(exc)) from exc
+        except PermissionError as exc: raise HTTPException(429 if "limit" in str(exc) else 403, str(exc)) from exc
         except ValueError as exc: raise HTTPException(422, str(exc)) from exc
 
     @app.post("/api/v1/invoice-intakes/{intake_id}/analyze")

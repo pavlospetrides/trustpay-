@@ -14,6 +14,7 @@ create table public.invoice_intakes (
   uncertain_fields jsonb not null default '[]'::jsonb check (jsonb_typeof(uncertain_fields) = 'array'),
   extraction_method text,
   error_code text,
+  extraction_attempts integer not null default 1 check (extraction_attempts between 1 and 3),
   explanation text,
   explanation_method text check (explanation_method in ('verified_policy','openai_summary')),
   invoice_id uuid,
@@ -28,7 +29,7 @@ create table public.invoice_intakes (
 create index invoice_intakes_org_created_idx on public.invoice_intakes(organization_id,created_at desc);
 revoke all on public.invoice_intakes from anon, authenticated;
 grant select (id,organization_id,uploaded_by,content_type,size_bytes,sha256,status,
-  uncertain_fields,extraction_method,error_code,explanation,explanation_method,invoice_id,created_at,updated_at)
+  uncertain_fields,extraction_method,error_code,extraction_attempts,explanation,explanation_method,invoice_id,created_at,updated_at)
   on public.invoice_intakes to authenticated;
 alter table public.invoice_intakes enable row level security;
 create policy invoice_intakes_read on public.invoice_intakes for select to authenticated

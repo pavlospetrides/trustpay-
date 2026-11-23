@@ -107,7 +107,7 @@ export default function InvoiceIntakeReview() {
       <div className="intake-actions"><button className="button secondary" type="submit" disabled={busy || intake.status === "analyzed" || missing.length > 0 || !supplierId}>Save corrections</button>
         <button className="button primary" type="button" disabled={busy || intake.status !== "reviewed"} onClick={() => void analyze()}>{busy ? "Working…" : "Analyze risk"}</button></div>
       </form>
-    </Panel><aside className="intake-review-side"><Panel><h2>Original evidence</h2><p>Private file · {(intake.size_bytes / 1024).toFixed(0)} KB</p><button className="button quiet full" type="button" onClick={() => void download()}>Download original</button><button className="button quiet full" type="button" disabled={busy || intake.status === "analyzed"} onClick={() => void retry()}><RotateCcw size={16}/> Retry extraction</button></Panel>
+    </Panel><aside className="intake-review-side"><Panel><h2>Original evidence</h2><p>Private file · {(intake.size_bytes / 1024).toFixed(0)} KB</p><button className="button quiet full" type="button" onClick={() => void download()}>Download original</button><button className="button quiet full" type="button" disabled={busy || intake.status === "analyzed" || intake.status === "reviewed" || intake.extraction_attempts >= 3} onClick={() => void retry()}><RotateCcw size={16}/> Retry extraction</button></Panel>
       <Panel><h2>What happens next?</h2><p>TrustPay checks the confirmed IBAN, duplicate invoice number, and amount against this organization’s supplier history.</p><p>Scores are review priorities, not fraud probabilities. Approval remains server controlled.</p></Panel>
     </aside></div>
   </>;

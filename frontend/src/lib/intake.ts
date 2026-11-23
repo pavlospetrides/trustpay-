@@ -20,6 +20,7 @@ export type InvoiceIntake = {
   uncertain_fields: string[];
   method: "local_pdf_text" | "openai_vision" | null;
   error_code: string | null;
+  extraction_attempts: number;
   explanation: string | null;
   explanation_method: "verified_policy" | "openai_summary" | null;
   invoice_id: string | null;
