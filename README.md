@@ -11,6 +11,10 @@ A runnable full-stack proof of concept for the **Bank of Cyprus Fintech Hackatho
 
 This repository contains the FastAPI and Next.js demo. Team tasks and review guidance live in [team status](docs/STATUS.md), [contributing](CONTRIBUTING.md), and [the agent guide](AGENTS.md). The actual FastAPI schema is exported in [docs/openapi.json](docs/openapi.json). Clone from `https://github.com/pavlospetrides/trustpay-.git`.
 
+## Supabase development mode
+
+The optional Supabase PostgreSQL mode adds organization membership checks, server-controlled assessment and approval transitions, encrypted IBAN storage, RLS, and private invoice documents. It requires an explicitly configured development project and never replaces the local SQLite demo automatically. Read [Supabase setup](docs/supabase-setup.md) for exact commands and [database architecture](docs/database-architecture.md) for the security model. Do not deploy this hackathon build as a production payment system.
+
 ## Start on Windows
 
 **Recommended demo UI:** run the existing FastAPI service and the new Next.js frontend in separate PowerShell terminals:

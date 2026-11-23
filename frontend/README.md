@@ -2,6 +2,8 @@
 
 Next.js local demo UI for the existing FastAPI backend. Scores, signals and workflow state always come from Python.
 
+When `NEXT_PUBLIC_SUPABASE_URL` and `NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY` are configured, `/app/*` routes require Supabase Auth sign-in at `/login`. The browser sends the user access token and selected organization to FastAPI, which independently validates identity and membership. The publishable key is safe for the browser; the database URL and secret key are server-only. An organization selector appears for users with multiple memberships. The approval queue is at `/app/approvals`, and private invoice evidence can be uploaded from a payment detail page. See [Supabase setup](../docs/supabase-setup.md).
+
 The Crystal interface defaults to the device color scheme until you choose Light or Dark in Settings. That preference is saved in this browser. The floating navigation, supplier profiles, and assessment views all use the same FastAPI records.
 
 ## Windows PowerShell

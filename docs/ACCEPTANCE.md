@@ -16,3 +16,7 @@ Capture the command, environment, commit SHA and actual outcome for each impleme
 | Demo network unavailable | Explicitly labeled simulation, with provider success claims tied to actual receipts |
 
 Keep a short demo script covering import, explanation, hold, verification and decision. Use synthetic invoices and accounts. Record timing for the same cases under declared baseline and assisted conditions. Report the sample size and false alerts alongside time saved. The risk score is a documented policy output until validated as a predictive measure.
+
+## Supabase Phase 1 acceptance gate
+
+The feature branch includes executable tests for two-organization RLS reads and denied direct writes (`supabase/tests/database/tenant_policies_test.sql`), plus a disposable-PostgreSQL API scenario (`tests/rls/test_postgres_api.py`) that submits a changed-account invoice after 14 payments, rejects cross-tenant reads and unauthorized approval, records independent verification, then records approval and audit events. GitHub Actions run 45160553871 applied the migrations to a disposable local Supabase stack, passed all 13 pgTAP assertions, and passed that API test. A hosted development project and full browser sign-in flow remain unverified.
