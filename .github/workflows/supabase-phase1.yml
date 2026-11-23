@@ -1,0 +1,47 @@
+name: TrustPay full-stack checks
+
+on:
+  pull_request:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  app:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.13'
+      - run: python -m pip install -r requirements.txt
+      - run: python -m pytest tests -q
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: npm
+          cache-dependency-path: frontend/package-lock.json
+      - run: npm ci
+        working-directory: frontend
+      - run: npm run test && npm run typecheck && npm run lint && npm run build
+        working-directory: frontend
+
+  database:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: supabase/setup-cli@v3
+        with:
+          version: v2.stable
+      - run: supabase start
+      - run: supabase test db
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.13'
+      - run: python -m pip install -r requirements.txt
+      - run: python -m pytest tests/rls/test_postgres_api.py -q
+        env:
+          TRUSTPAY_TEST_DATABASE_URL: postgresql://postgres:postgres@127.0.0.1:54322/postgres
+          TRUSTPAY_TEST_CONFIRM: disposable

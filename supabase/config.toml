@@ -1,0 +1,4 @@
+project_id = "trustpay-ai-local"
+
+[db.seed]
+enabled = false

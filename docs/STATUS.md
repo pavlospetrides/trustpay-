@@ -1,18 +1,20 @@
 # Team status
 
-Updated 23 November 2026 for the full-project import branch.
+Updated 23 November 2026 for the Supabase Phase 1 feature branch.
 
 ## Branch status
 
-The `import/full-project` branch imports the existing FastAPI/SQLite backend, legacy HTML client, and Next.js Crystal frontend while preserving the bootstrap documentation from `main`. It is pending team review and merge. The repository is public; the demo uses synthetic fixtures and contains no real Jinius connection, production authentication, or payment transfer capability.
+The full FastAPI/SQLite backend, legacy HTML client, and Next.js Crystal frontend were imported and merged to `main` in PR #8. The `feat/supabase-phase1` branch adds a separate PostgreSQL/Auth path with organization scoping, SQL migrations and RLS, private document handling, and synthetic development seed tooling. This branch has not been applied to a Supabase project or reviewed for merge. The repository is public; no credentials or real payment records belong in it. Real Jinius access and payment initiation remain absent.
 
 ## Verification on the import branch
 
 On Windows with Python 3.14 and Node.js, `py -m pytest tests -q` passed 17 tests with two dependency warnings. In `frontend/`, `npm run lint`, `npm run typecheck`, `npm run test` (7 tests), and `npm run build` all passed. The actual FastAPI schema is exported as [openapi.json](openapi.json); policy rules are implemented in [app/risk.py](../app/risk.py) and the API surface is summarized in [API_CONTRACT.md](../API_CONTRACT.md). See the root and frontend READMEs for installation and run commands. These checks establish local demo behavior; they do not establish production security or provider integration.
 
+For the Supabase branch, the available Python suite currently reports 27 passed and 1 PostgreSQL integration test skipped because no disposable database is configured. The frontend suite reports 9 passed; TypeScript and ESLint pass. SQL files parse with `pglast`, but actual migration execution and pgTAP tests remain pending a local Supabase stack or designated disposable project. See [Supabase setup](supabase-setup.md) and [database architecture](database-architecture.md).
+
 ## First work
 
-1. Review and merge the imported backend and frontend, preserving source provenance and working commands.
+1. Validate the Supabase branch migrations, RLS and end-to-end API checks on a disposable project, then obtain human review before merge.
 2. Confirm participant Jinius API fields, access and permitted sandbox operations.
 3. Agree the actual API contract, supplier trust history and case approval states before frontend integration.
 4. Build the changed-account demo with deterministic rules and human verification, then record acceptance evidence.
