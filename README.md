@@ -17,6 +17,8 @@ The optional Supabase PostgreSQL mode adds organization membership checks, serve
 
 Phase 2 adds a private invoice intake, extraction review, and persisted policy assessment to PostgreSQL mode. See [AI invoice intelligence](docs/ai-invoice-intelligence.md) for configuration, workflow, security controls, tests, and current limits. Apply all Supabase migrations before starting the updated backend.
 
+The [hackathon demo runbook](docs/hackathon-demo-runbook.md) records the verified synthetic development workflow and the remaining live-provider checks. The [Jinius integration boundary](docs/jinius-integration-architecture.md) uses official public sources and leaves live API calls disabled until Jinius supplies the authorized sandbox contract.
+
 ## Start on Windows
 
 **Recommended demo UI:** run the existing FastAPI service and the new Next.js frontend in separate PowerShell terminals:

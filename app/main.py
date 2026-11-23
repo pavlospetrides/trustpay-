@@ -58,7 +58,7 @@ def create_app(database_path: str | None = None) -> FastAPI:
     provider_enabled = (mode == "postgres" and bool(os.environ.get("OPENAI_API_KEY")) and
                         os.environ.get("TRUSTPAY_AI_EXTERNAL_DOCUMENTS") == "development" and
                         os.environ.get("TRUSTPAY_ENVIRONMENT") == "development")
-    provider = OpenAIInvoiceProvider(model=os.environ.get("TRUSTPAY_AI_MODEL", "gpt-4o-mini")) if provider_enabled else None
+    provider = OpenAIInvoiceProvider(model=os.environ.get("TRUSTPAY_AI_MODEL", "gpt-5.4-mini")) if provider_enabled else None
     intake = IntakeStore(store, storage, provider) if mode == "postgres" else None
 
     def principal(authorization: str | None = Header(default=None),

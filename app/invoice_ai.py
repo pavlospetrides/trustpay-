@@ -157,7 +157,7 @@ class ProviderUnavailable(RuntimeError):
 
 
 class OpenAIInvoiceProvider:
-    def __init__(self, *, model: str = "gpt-4o-mini", client=None):
+    def __init__(self, *, model: str = "gpt-5.4-mini", client=None):
         self.model = model
         self.client = client or OpenAI(timeout=30, max_retries=1)
 

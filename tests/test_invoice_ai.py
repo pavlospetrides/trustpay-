@@ -4,6 +4,7 @@ import pytest
 from io import BytesIO
 from pypdf import PdfWriter
 from pypdf.generic import DecodedStreamObject, DictionaryObject, NameObject
+from PIL import Image
 
 from app.invoice_ai import (ExplanationText, OpenAIInvoiceProvider, ProposedFields, ProviderUnavailable,
                             ReviewedInvoice, extract_invoice, parse_invoice_text)
@@ -103,7 +104,9 @@ def test_image_uses_visual_provider_when_available():
             assert content_type == "image/png" and data.startswith(b"\x89PNG")
             return ProposedFields.model_validate(parse_invoice_text(SYNTHETIC_TEXT).fields.model_dump())
 
-    result = extract_invoice(b"\x89PNG\r\n\x1a\nsynthetic", "image/png", provider=Provider())
+    output = BytesIO()
+    Image.new("RGB", (2, 2), "white").save(output, format="PNG")
+    result = extract_invoice(output.getvalue(), "image/png", provider=Provider())
     assert result.method == "openai_vision"
     assert result.fields.supplier_name == "Aegean Supplies Ltd"
 

@@ -14,7 +14,7 @@ npx supabase test db
 
 `supabase/config.toml` disables automatic seed execution. The `db reset` command is destructive to the **local** stack; use it only for a disposable local instance. The pgTAP suite lives at `supabase/tests/database/tenant_policies_test.sql`. For a remote development project, first confirm its project reference and migration history, then run `npx supabase link --project-ref <DEV_PROJECT_REF>` and `npx supabase db push`. Do not run `db reset` remotely.
 
-The configured hosted development project has the application schema, but its `supabase_migrations.schema_migrations` table was absent when checked. Reconcile the existing schema with the CLI migration history before a future `db push`; do not replay `create table` migrations into an already populated database.
+The configured hosted development project has the application schema, including the Phase 2 intake table applied transactionally on 23 November 2026, but its `supabase_migrations.schema_migrations` table remains absent because migrations were applied manually. Reconcile the existing schema with the CLI migration history before a future `db push`; do not replay `create table` migrations into an already populated database. The Phase 2 hosted browser check is documented in the [demo runbook](hackathon-demo-runbook.md).
 
 ## 2. Set server-only configuration
 
