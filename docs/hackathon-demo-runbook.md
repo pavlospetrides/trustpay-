@@ -18,7 +18,15 @@ Use only the designated Supabase development project (`dtoqrscbbdacqpaqxgpr`) an
 
 ## Repeatable checks
 
-The opt-in browser test is `TRUSTPAY_HOSTED_E2E_CONFIRM=development py -m pytest tests/hosted/test_phase2_browser.py -q -s` (set the variable using your shell's syntax). Install `playwright` and Chromium for this manual check. The same guard enables `tests/hosted/test_policy_scenarios.py`, which verifies duplicate hard block, clean approval, amount deviation, and no-history warnings through the real API. Each run creates new immutable **synthetic** invoices and audit trail entries in the development project. It uses the existing ignored `.env.e2e` accounts. Run the normal Python suite, `npm run test`, `npm run typecheck`, `npm run lint`, and `npm run build` before the demo; PR CI tests migrations and RLS on disposable Supabase.
+Install Playwright and Chromium with `py -m pip install playwright` and `py -m playwright install chromium`. In PowerShell, run the opt-in browser and policy checks:
+
+```powershell
+$env:TRUSTPAY_HOSTED_E2E_CONFIRM = "development"
+py -m pytest tests/hosted/test_phase2_browser.py tests/hosted/test_policy_scenarios.py -q -s
+Remove-Item Env:TRUSTPAY_HOSTED_E2E_CONFIRM
+```
+
+The browser test uses real Auth, Storage, FastAPI, PostgreSQL, and Next.js. The policy test verifies duplicate hard block, clean approval, amount deviation, hold, and no-history warnings. Each run creates new immutable **synthetic** invoices and audit trail entries in the development project. Both use the existing ignored `.env.e2e` accounts. Run the normal Python suite, `npm run test`, `npm run typecheck`, `npm run lint`, and `npm run build` before the demo; PR CI tests migrations and RLS on disposable Supabase.
 
 ## AI reader status and fallback
 
