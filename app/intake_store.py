@@ -220,7 +220,7 @@ class IntakeStore:
                     where organization_id=%s and id=%s""",
                     (internal["id"], explanation, explanation_method, principal.organization_id, intake_id))
                 self._audit(con, principal, intake_id, "INTAKE_ANALYZED", "Reviewed invoice analyzed by policy engine")
-        return invoice
+        return self.store.invoice(public_id, principal)
 
     def document(self, intake_id: UUID, principal: Principal) -> tuple[bytes, str]:
         with self.store.connect() as con:
