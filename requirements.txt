@@ -7,3 +7,5 @@ cryptography>=44,<47
 psycopg[binary]>=3.2,<4
 python-multipart>=0.0.20,<1
 python-dotenv>=1,<2
+pypdf>=6,<8
+openai>=1.109,<4

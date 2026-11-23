@@ -5,7 +5,7 @@ from collections import Counter
 from dataclasses import dataclass
 from decimal import Decimal
 from statistics import median
-from uuid import UUID
+from uuid import UUID, uuid4
 
 import psycopg
 from psycopg.rows import dict_row
@@ -128,22 +128,27 @@ class PostgresStore:
             "history": len(history), "date": row["issue_date"].isoformat(),
             "risk": row["score"], "level": row["severity"], "kind": row["kind"],
             "reason": row["explanation"], "signals": signal_list,
+            "ai_explanation": row["ai_explanation"],
+            "ai_explanation_method": row["ai_explanation_method"],
             "notes": [s["explanation"] for s in signal_list] or [row["explanation"]],
             "status": row["status"], "verified": bool(row["verified_by"]),
             "verified_by": str(row["verified_by"]) if row["verified_by"] else None,
             "approved_by": str(row["approved_by"]) if row["approved_by"] else None,
-            "reference": "Synthetic development seed" if row["external_source"] == "synthetic_seed" else "Manual assessment",
+            "reference": "Synthetic development seed" if row["external_source"] == "synthetic_seed" else
+                         "Uploaded invoice" if row["external_source"] == "uploaded" else "Manual assessment",
             "source": row["external_source"],
         }
 
     _INVOICE_QUERY = """select i.*, s.public_id as supplier_public_id, s.name as supplier_name,
-        b.iban_last4, a.id as assessment_id, a.score, a.severity, a.kind, a.explanation
+        b.iban_last4, a.id as assessment_id, a.score, a.severity, a.kind, a.explanation,
+        t.explanation as ai_explanation, t.explanation_method as ai_explanation_method
         from public.invoices i
         join public.suppliers s on s.organization_id=i.organization_id and s.id=i.supplier_id
         join public.supplier_bank_accounts b on b.organization_id=i.organization_id and b.id=i.bank_account_id
         join lateral (select * from public.risk_assessments a
           where a.organization_id=i.organization_id and a.invoice_id=i.id
           order by a.assessed_at desc, a.id desc limit 1) a on true
+        left join public.invoice_intakes t on t.organization_id=i.organization_id and t.invoice_id=i.id
         where i.organization_id=%s"""
 
     def invoices(self, principal: Principal):
@@ -197,13 +202,27 @@ class PostgresStore:
         if principal.role not in {"owner", "admin", "analyst"}:
             raise PermissionError("Role cannot assess invoices")
         source = item.get("source", "manual")
-        if source not in {"manual", "synthetic_seed"}:
+        if source not in {"manual", "synthetic_seed", "uploaded"}:
             raise ValueError("Unknown assessment source")
+        if item.get("currency", "EUR") != "EUR":
+            raise ValueError("Only EUR assessments are supported by the current risk engine")
         org = principal.organization_id
         ciphertext, fingerprint, last4 = self.protector.protect(item["creditor_account"])
         with self.connect() as con:
-            supplier = con.execute("""select id from public.suppliers
-                where organization_id=%s and public_id=%s""", (org, item["supplier_id"])).fetchone()
+            supplier = None
+            if item.get("supplier_id"):
+                supplier = con.execute("""select id from public.suppliers
+                    where organization_id=%s and public_id=%s""", (org, item["supplier_id"])).fetchone()
+            elif source == "uploaded" and item.get("supplier_name"):
+                supplier = con.execute("""select id from public.suppliers
+                    where organization_id=%s and lower(name)=lower(%s)
+                    order by created_at limit 1""", (org, item["supplier_name"])).fetchone()
+                if supplier is None and item.get("create_new_supplier"):
+                    supplier = con.execute("""insert into public.suppliers
+                        (organization_id,public_id,name,registration_number,vat_number,status)
+                        values (%s,%s,%s,%s,%s,'review') returning id""",
+                        (org, f"NEW-{uuid4().hex[:12].upper()}", item["supplier_name"],
+                         item.get("registration_number"), item.get("vat_number"))).fetchone()
             if supplier is None:
                 raise LookupError("Supplier not found")
             if con.execute("select 1 from public.invoices where organization_id=%s and public_id=%s",
@@ -224,10 +243,10 @@ class PostgresStore:
                 (org, supplier["id"], ciphertext, fingerprint, last4)).fetchone()
             invoice = con.execute("""insert into public.invoices
                 (organization_id,public_id,supplier_id,external_source,external_invoice_id,
-                 invoice_number,issue_date,currency,total_amount,bank_account_id,status,created_by)
-                values (%s,%s,%s,%s,%s,%s,%s,'EUR',%s,%s,%s,%s) returning id""",
+                 invoice_number,issue_date,due_date,currency,total_amount,bank_account_id,status,created_by)
+                values (%s,%s,%s,%s,%s,%s,%s,%s,'EUR',%s,%s,%s,%s) returning id""",
                 (org, item["id"], supplier["id"], source, item["id"], item["invoice_number"],
-                 item["invoice_date"], Decimal(item["amount_cents"]) / 100,
+                 item["invoice_date"], item.get("due_date"), Decimal(item["amount_cents"]) / 100,
                  account["id"], assessment.recommended_status,
                  None if source == "synthetic_seed" else principal.user_id)).fetchone()
             saved = con.execute("""insert into public.risk_assessments
@@ -245,6 +264,19 @@ class PostgresStore:
             self._audit(con, principal, item["id"], "ASSESSED", "Payment risk assessed",
                         f"{item['id']} · policy score {assessment.score}/100")
         return self.invoice(item["id"], principal)
+
+    def assessment_history(self, invoice_id: str, principal: Principal):
+        with self.connect() as con:
+            internal_id = self._internal_invoice_id(con, invoice_id, principal)
+            rows = con.execute("""select id,score,severity,kind,recommended_status,engine_version,
+                explanation,evidence,assessed_at from public.risk_assessments
+                where organization_id=%s and invoice_id=%s order by assessed_at desc,id desc""",
+                (principal.organization_id, internal_id)).fetchall()
+            return [{**row, "id": str(row["id"]), "assessed_at": row["assessed_at"].isoformat(),
+                     "signals": [dict(signal) for signal in con.execute("""select code,severity,weight,
+                        explanation,evidence from public.risk_signals where organization_id=%s and assessment_id=%s
+                        order by weight desc,code""", (principal.organization_id, row["id"])).fetchall()]}
+                    for row in rows]
 
     def transition(self, invoice_id: str, action: str, note: str, principal: Principal):
         org = principal.organization_id

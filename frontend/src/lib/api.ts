@@ -1,4 +1,5 @@
 import type { AssessmentInput, AuditEvent, Health, Integrations, Invoice, Supplier } from "./types";
+import type { AssessmentHistory, InvoiceDraftFields, InvoiceIntake } from "./intake";
 import { authConfigured, organizationStorageKey, supabaseBrowser } from "./supabase";
 export class ApiError extends Error { constructor(message:string, public status:number) { super(message); } }
 async function authHeaders(body?: BodyInit | null):Promise<Record<string,string>> {
@@ -28,6 +29,13 @@ const post = <T>(path:string, body?:unknown) => request<T>(path,{method:"POST",b
 export const api = {
   health:()=>request<Health>("/health"), invoices:()=>request<Invoice[]>("/v1/invoices"), invoice:(id:string)=>request<Invoice>(`/v1/invoices/${encodeURIComponent(id)}`),
   organizations:()=>request<{id:string;name:string;role:string}[]>("/v1/me/organizations"),
+  uploadIntake:(file:File,key:string)=>{const form=new FormData();form.set("file",file);return request<InvoiceIntake>("/v1/invoice-intakes",{method:"POST",body:form,headers:{"Idempotency-Key":key}});},
+  intake:(id:string)=>request<InvoiceIntake>(`/v1/invoice-intakes/${encodeURIComponent(id)}`),
+  retryIntake:(id:string)=>post<InvoiceIntake>(`/v1/invoice-intakes/${encodeURIComponent(id)}/extract`),
+  reviewIntake:(id:string,fields:InvoiceDraftFields,supplierId:string|null,createNewSupplier:boolean)=>request<InvoiceIntake>(`/v1/invoice-intakes/${encodeURIComponent(id)}`,{method:"PATCH",body:JSON.stringify({fields,supplier_id:supplierId,create_new_supplier:createNewSupplier})}),
+  analyzeIntake:(id:string)=>post<Invoice>(`/v1/invoice-intakes/${encodeURIComponent(id)}/analyze`),
+  intakeDocument:async(id:string)=>{const response=await rawRequest(`/v1/invoice-intakes/${encodeURIComponent(id)}/document`);return response.blob();},
+  assessments:(id:string)=>request<AssessmentHistory[]>(`/v1/invoices/${encodeURIComponent(id)}/assessments`),
   documents:(id:string)=>request<{id:string;content_type:string;size_bytes:number;created_at:string}[]>(`/v1/invoices/${encodeURIComponent(id)}/documents`),
   uploadDocument:(id:string,file:File)=>{const form=new FormData();form.set("file",file);return request<{id:string}>(`/v1/invoices/${encodeURIComponent(id)}/documents`,{method:"POST",body:form});},
   downloadDocument:async(id:string,documentId:string)=>{const response=await rawRequest(`/v1/invoices/${encodeURIComponent(id)}/documents/${encodeURIComponent(documentId)}`);return response.blob();},

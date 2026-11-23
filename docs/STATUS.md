@@ -1,6 +1,10 @@
 # Team status
 
-Updated 23 November 2026 for the Supabase Phase 1 feature branch.
+Updated 23 November 2026 for the Phase 2 invoice intelligence feature branch.
+
+## Phase 2 handoff
+
+The `feat/ai-invoice-phase2` branch builds on merged Phase 1 and adds private PDF/image intake, local PDF extraction, optional development-only OpenAI vision extraction and evidence summary, human field review, tenant-scoped PostgreSQL persistence, and the existing policy-based risk/approval path in the Crystal UI. The 14-payment changed-IBAN synthetic scenario has a disposable PostgreSQL API integration test. Local checks: 40 Python tests passed, two PostgreSQL tests skipped without a disposable database; 12 frontend tests, TypeScript, ESLint, and production build passed. CI is configured to run migrations, pgTAP, and both PostgreSQL integration tests on disposable Supabase. Hosted Phase 2 migration, browser sign-in and full upload workflow, and live model calls have not been verified. See [Phase 2 architecture and testing](ai-invoice-intelligence.md).
 
 ## Branch status
 

@@ -5,7 +5,7 @@
 A runnable full-stack proof of concept for the **Bank of Cyprus Fintech Hackathon 7.0 (27–29 November 2026)**, targeting payment history intelligence and eventual Jinius API integration.
 
 > [!IMPORTANT]
-> **LOCAL SYNTHETIC DEMO ONLY.** No bank verification, real Jinius API calls, AI model, fraud-probability calibration or payment transfers. All suppliers and identifiers are fictional. Do not import real customer, supplier, bank or invoice data into this build.
+> **SYNTHETIC DEVELOPMENT DATA ONLY.** No bank verification, real Jinius API calls, fraud-probability calibration or payment transfers. The optional AI invoice reader sends documents to an external provider only when explicitly enabled for development. Do not import real customer, supplier, bank or invoice data into this build.
 
 ## Shared project
 
@@ -14,6 +14,8 @@ This repository contains the FastAPI and Next.js demo. Team tasks and review gui
 ## Supabase development mode
 
 The optional Supabase PostgreSQL mode adds organization membership checks, server-controlled assessment and approval transitions, encrypted IBAN storage, RLS, and private invoice documents. It requires an explicitly configured development project and never replaces the local SQLite demo automatically. Read [Supabase setup](docs/supabase-setup.md) for exact commands and [database architecture](docs/database-architecture.md) for the security model. Do not deploy this hackathon build as a production payment system.
+
+Phase 2 adds a private invoice intake, extraction review, and persisted policy assessment to PostgreSQL mode. See [AI invoice intelligence](docs/ai-invoice-intelligence.md) for configuration, workflow, security controls, tests, and current limits. Apply all Supabase migrations before starting the updated backend.
 
 ## Start on Windows
 
