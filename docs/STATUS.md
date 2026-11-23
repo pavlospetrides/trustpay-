@@ -1,10 +1,14 @@
 # Team status
 
-Updated 23 November 2026 for the Supabase Phase 1 feature branch.
+Updated 23 November 2026 after hosted Phase 2 development verification.
+
+## Phase 2 handoff
+
+PR #11 (`feat/ai-invoice-phase2`) builds on Phase 1, which was merged in PRs #9 and #10. The [latest Phase 2 CI run](https://github.com/pavlospetrides/trustpay-/actions/runs/45245609886) passed app and disposable database jobs. On the designated hosted **development** project, the additive Phase 2 migration was applied in one transaction after checking project identity and synthetic-only organizations. Four new synthetic Auth test users were created without changing existing accounts. A real Chromium browser run passed password sign-in, PDF upload to private Storage, extracted-field review, 14-payment changed-IBAN analysis (score 75), blocked approval and maker self-verification, distinct verifier and approver actions, and persisted audit events. Direct Supabase RLS and Storage checks allowed the maker and denied the outsider. The local opt-in browser test is [test_phase2_browser.py](../tests/hosted/test_phase2_browser.py); the [demo runbook](hackathon-demo-runbook.md) explains operation. Live OpenAI calls remain unverified because no `OPENAI_API_KEY` is configured. The project has no CLI migration-history table; do not use `db push` until history is reconciled. The dashboard plan and full quota are also unverified, though the active database uses about 12 MB and Storage was empty before testing.
 
 ## Branch status
 
-The full FastAPI/SQLite backend, legacy HTML client, and Next.js Crystal frontend were imported and merged to `main` in PR #8. The `feat/supabase-phase1` branch adds a separate PostgreSQL/Auth path with organization scoping, SQL migrations and RLS, private document handling, and synthetic development seed tooling. A designated hosted development project now has the TrustPay schema and synthetic demo data; this branch has not been reviewed for merge. The repository is public; no credentials or real payment records belong in it. Real Jinius access and payment initiation remain absent.
+The full FastAPI/SQLite backend, legacy HTML client, and Next.js Crystal frontend were imported in PR #8. Supabase Phase 1 was merged to `main` in PRs #9 and #10. PR #11 remains a draft for human review. The repository is public; no credentials or real payment records belong in it. Real Jinius access and payment initiation remain absent; see the [official-source integration boundary](jinius-integration-architecture.md).
 
 ## Verification on the import branch
 

@@ -1,9 +1,12 @@
 """Private invoice-document validation and Supabase Storage transport."""
 
 import os
+import warnings
+from io import BytesIO
 
 import httpx
 from fastapi import HTTPException
+from PIL import Image
 
 MAX_DOCUMENT_BYTES = 10 * 1024 * 1024
 _TYPES = {
@@ -19,6 +22,19 @@ def validate_invoice_document(content_type: str, data: bytes) -> str:
         raise ValueError("Only PDF, PNG, or JPEG invoices with matching file content are accepted")
     if len(data) > MAX_DOCUMENT_BYTES:
         raise ValueError("Invoice document exceeds the 10 MB limit")
+    if content_type in {"image/png", "image/jpeg"}:
+        image_format = "PNG" if content_type == "image/png" else "JPEG"
+        try:
+            with warnings.catch_warnings():
+                warnings.simplefilter("error", Image.DecompressionBombWarning)
+                with Image.open(BytesIO(data)) as image:
+                    if image.format != image_format or image.width * image.height > 20_000_000:
+                        raise ValueError("Invoice image format or dimensions are invalid")
+                    image.verify()
+                with Image.open(BytesIO(data)) as image:
+                    image.load()
+        except (OSError, Image.DecompressionBombWarning) as exc:
+            raise ValueError("Invoice image could not be read") from exc
     return expected[1]
 
 

@@ -8,9 +8,12 @@ from dotenv import load_dotenv
 from fastapi import Depends, FastAPI, File, Header, HTTPException, UploadFile
 from fastapi.responses import FileResponse, JSONResponse, Response
 from pydantic import BaseModel, Field
+from starlette.concurrency import run_in_threadpool
 from .auth import SupabaseAuth
 from .database import Store
 from .documents import MAX_DOCUMENT_BYTES, PrivateInvoiceStorage, validate_invoice_document
+from .intake_store import IntakeStore
+from .invoice_ai import OpenAIInvoiceProvider, ReviewedInvoice
 from .postgres_store import PostgresStore, Principal
 from .security import AccountProtector
 
@@ -27,6 +30,11 @@ class AssessmentInput(BaseModel):
 
 class VerificationInput(BaseModel):
     evidence_note: str = Field(min_length=12, max_length=500)
+
+class IntakeReviewInput(BaseModel):
+    fields: ReviewedInvoice
+    supplier_id: str | None = None
+    create_new_supplier: bool = False
 
 def create_app(database_path: str | None = None) -> FastAPI:
     mode = "sqlite" if database_path is not None else os.environ.get("TRUSTPAY_BACKEND", "sqlite")
@@ -47,6 +55,11 @@ def create_app(database_path: str | None = None) -> FastAPI:
     app = FastAPI(title="TrustPay AI API", version="0.2.0", description="TrustPay review API — does NOT move money")
     app.state.store = store
     storage = PrivateInvoiceStorage(os.environ.get("SUPABASE_URL", "")) if mode == "postgres" else None
+    provider_enabled = (mode == "postgres" and bool(os.environ.get("OPENAI_API_KEY")) and
+                        os.environ.get("TRUSTPAY_AI_EXTERNAL_DOCUMENTS") == "development" and
+                        os.environ.get("TRUSTPAY_ENVIRONMENT") == "development")
+    provider = OpenAIInvoiceProvider(model=os.environ.get("TRUSTPAY_AI_MODEL", "gpt-5.4-mini")) if provider_enabled else None
+    intake = IntakeStore(store, storage, provider) if mode == "postgres" else None
 
     def principal(authorization: str | None = Header(default=None),
                   x_organization_id: str | None = Header(default=None)) -> Principal | None:
@@ -90,11 +103,74 @@ def create_app(database_path: str | None = None) -> FastAPI:
                 con.execute("select 1")
         return {"status":"ok", "mode":"supabase-postgres" if mode == "postgres" else "synthetic-local-demo",
                 "payment_initiation":False, "jinius_connection":"disconnected" if mode == "postgres" else "mock",
-                "risk_model":"auditable-rules-v1"}
+                "risk_model":"auditable-rules-v1",
+                "invoice_reader":"openai_vision" if provider_enabled else "local_pdf_text"}
 
     @app.get("/api/v1/invoices")
     def invoices(user: Principal | None = Depends(principal)):
         return store.invoices(user) if mode == "postgres" else store.invoices()
+
+    @app.post("/api/v1/invoice-intakes", status_code=201)
+    async def create_intake(file: UploadFile = File(...),
+                            idempotency_key: str | None = Header(default=None),
+                            user: Principal | None = Depends(principal)):
+        if mode != "postgres":
+            raise HTTPException(403, "Invoice intake requires PostgreSQL mode")
+        data = await file.read(MAX_DOCUMENT_BYTES + 1)
+        try:
+            return await run_in_threadpool(intake.create, data, file.content_type or "", user, idempotency_key)
+        except PermissionError as exc:
+            raise HTTPException(429 if "limit" in str(exc) else 403, str(exc)) from exc
+        except FileExistsError as exc:
+            raise HTTPException(409, str(exc)) from exc
+        except ValueError as exc:
+            raise HTTPException(422, str(exc)) from exc
+
+    @app.get("/api/v1/invoice-intakes/{intake_id}")
+    def get_intake(intake_id: UUID, user: Principal | None = Depends(principal)):
+        if mode != "postgres":
+            raise HTTPException(404, "Invoice intake not found")
+        try: return intake.get(intake_id, user)
+        except LookupError as exc: raise HTTPException(404, str(exc)) from exc
+
+    @app.patch("/api/v1/invoice-intakes/{intake_id}")
+    def review_intake(intake_id: UUID, payload: IntakeReviewInput,
+                      user: Principal | None = Depends(principal)):
+        if mode != "postgres":
+            raise HTTPException(403, "Invoice intake requires PostgreSQL mode")
+        try: return intake.review(intake_id, payload.fields, payload.supplier_id,
+                                  payload.create_new_supplier, user)
+        except LookupError as exc: raise HTTPException(404, str(exc)) from exc
+        except PermissionError as exc: raise HTTPException(403, str(exc)) from exc
+        except ValueError as exc: raise HTTPException(422, str(exc)) from exc
+
+    @app.post("/api/v1/invoice-intakes/{intake_id}/extract")
+    async def retry_intake(intake_id: UUID, user: Principal | None = Depends(principal)):
+        if mode != "postgres":
+            raise HTTPException(403, "Invoice intake requires PostgreSQL mode")
+        try: return await run_in_threadpool(intake.retry, intake_id, user)
+        except LookupError as exc: raise HTTPException(404, str(exc)) from exc
+        except PermissionError as exc: raise HTTPException(429 if "limit" in str(exc) else 403, str(exc)) from exc
+        except ValueError as exc: raise HTTPException(422, str(exc)) from exc
+
+    @app.post("/api/v1/invoice-intakes/{intake_id}/analyze")
+    def analyze_intake(intake_id: UUID, user: Principal | None = Depends(principal)):
+        if mode != "postgres":
+            raise HTTPException(403, "Invoice intake requires PostgreSQL mode")
+        try: return intake.analyze(intake_id, user)
+        except LookupError as exc: raise HTTPException(404, str(exc)) from exc
+        except PermissionError as exc: raise HTTPException(403, str(exc)) from exc
+        except ValueError as exc: raise HTTPException(422, str(exc)) from exc
+
+    @app.get("/api/v1/invoice-intakes/{intake_id}/document")
+    def intake_document(intake_id: UUID, user: Principal | None = Depends(principal)):
+        if mode != "postgres":
+            raise HTTPException(404, "Invoice intake not found")
+        try:
+            data, content_type = intake.document(intake_id, user)
+        except LookupError as exc:
+            raise HTTPException(404, str(exc)) from exc
+        return Response(data, media_type=content_type, headers={"Content-Disposition": "attachment"})
 
     @app.get("/api/v1/me/organizations")
     def organizations(authorization: str | None = Header(default=None)):
@@ -107,6 +183,24 @@ def create_app(database_path: str | None = None) -> FastAPI:
     def invoice(invoice_id: str, user: Principal | None = Depends(principal)):
         try: return store.invoice(invoice_id, user) if mode == "postgres" else store.invoice(invoice_id)
         except LookupError as e: raise HTTPException(404,str(e)) from e
+
+    @app.get("/api/v1/invoices/{invoice_id}/assessments")
+    def assessment_history(invoice_id: str, user: Principal | None = Depends(principal)):
+        if mode != "postgres":
+            raise HTTPException(404, "Assessment history requires PostgreSQL mode")
+        try: return store.assessment_history(invoice_id, user)
+        except LookupError as exc: raise HTTPException(404, str(exc)) from exc
+
+    @app.get("/api/v1/invoices/{invoice_id}/assessments/{assessment_id}")
+    def assessment_detail(invoice_id: str, assessment_id: UUID,
+                          user: Principal | None = Depends(principal)):
+        if mode != "postgres":
+            raise HTTPException(404, "Assessment history requires PostgreSQL mode")
+        try:
+            return next(item for item in store.assessment_history(invoice_id, user)
+                        if item["id"] == str(assessment_id))
+        except (LookupError, StopIteration) as exc:
+            raise HTTPException(404, "Assessment not found") from exc
 
     @app.get("/api/v1/invoices/{invoice_id}/documents")
     def documents(invoice_id: str, user: Principal | None = Depends(principal)):

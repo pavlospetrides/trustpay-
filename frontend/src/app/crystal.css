@@ -340,3 +340,31 @@ input:focus, select:focus, textarea:focus { border-color: var(--cyan); box-shado
 @media (prefers-reduced-motion: reduce) {
   .dock-indicator, .crystal-dock a, .card-shine { transition: none !important; animation: none !important; }
 }
+
+/* Phase 2 invoice intake uses the existing Crystal surfaces and color tokens. */
+.intake-upload-panel { margin-bottom: 22px; }
+.intake-upload-panel .section-head svg, .intake-review-panel .section-head svg { color: var(--cyan); }
+.intake-dropzone { display: grid; justify-items: center; gap: 9px; padding: 28px 20px; border: 1px dashed var(--line); border-radius: 18px; background: var(--field); text-align: center; transition: border-color .2s, background .2s; }
+.intake-dropzone.is-dragging { border-color: var(--cyan); background: var(--panel-2); }
+.intake-dropzone>svg { color: var(--cyan); }
+.intake-dropzone strong { font-size: 15px; overflow-wrap: anywhere; }
+.intake-dropzone span, .intake-upload-actions span { color: var(--muted); font-size: 12px; }
+.intake-dropzone input { position: absolute; width: 1px; height: 1px; opacity: 0; pointer-events: none; }
+.intake-upload-actions { display: flex; align-items: center; justify-content: space-between; gap: 15px; margin-top: 17px; }
+.intake-progress { display: flex; align-items: center; gap: 12px; margin-top: 15px; color: var(--text); font-size: 12px; }
+.intake-progress progress { width: 100px; accent-color: var(--cyan); }
+.intake-review-grid { display: grid; grid-template-columns: minmax(0,1fr) 270px; gap: 20px; align-items: start; }
+.intake-review-side { display: grid; gap: 16px; }
+.intake-review-side .panel p { color: var(--muted); font-size: 12px; line-height: 1.6; }
+.intake-review-side .button { margin-top: 9px; }
+.intake-fields { display: grid; grid-template-columns: repeat(2,minmax(0,1fr)); gap: 14px; }
+.intake-fields label { position: relative; }
+.intake-fields .field-uncertain input { border-color: var(--amber); box-shadow: inset 0 0 0 1px var(--amber); }
+.intake-fields .field-uncertain small { color: var(--amber); }
+.intake-actions { display: flex; flex-wrap: wrap; gap: 10px; margin-top: 16px; }
+.assessment-history ol { list-style: none; padding: 0; margin: 18px 0 0; display: grid; gap: 12px; }
+.assessment-history li { display: grid; gap: 5px; padding: 14px; border: 1px solid var(--line); border-radius: 13px; background: var(--field); }
+.assessment-history li span, .assessment-history li small { color: var(--muted); font-size: 11px; }
+.assessment-history li p { margin: 2px 0; font-size: 12px; }
+@media (max-width: 900px) { .intake-review-grid { grid-template-columns: 1fr; } .intake-review-side { grid-template-columns: repeat(2,minmax(0,1fr)); } }
+@media (max-width: 560px) { .intake-fields, .intake-review-side { grid-template-columns: 1fr; } .intake-upload-actions { align-items: stretch; flex-direction: column; } }
