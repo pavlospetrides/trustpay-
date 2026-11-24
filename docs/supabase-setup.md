@@ -16,6 +16,14 @@ npx supabase test db
 
 The configured hosted development project has the application schema, including the Phase 2 intake table applied transactionally on 23 November 2026, but its `supabase_migrations.schema_migrations` table remains absent because migrations were applied manually. Reconcile the existing schema with the CLI migration history before a future `db push`; do not replay `create table` migrations into an already populated database. The Phase 2 hosted browser check is documented in the [demo runbook](hackathon-demo-runbook.md).
 
+**Jinius sync migration (#18), owner action.** `20261124000100_integration_imports.sql` is additive: it adds three count columns and a unique key to `sync_runs` and creates `integration_imports`. Do not use `db push` for the hosted development project. First confirm the project reference and that it holds only synthetic organizations. Then apply the file in one transaction:
+
+```bash
+psql "$TRUSTPAY_DATABASE_URL" --single-transaction -v ON_ERROR_STOP=1 -f supabase/migrations/20261124000100_integration_imports.sql
+```
+
+Without `psql`, paste the file into the dashboard SQL editor wrapped in `begin;` … `commit;`. Check the result with `select count(*) from public.integration_imports;`, which should return 0. Until the file is applied, the app keeps working and the Integrations page says sync is unavailable.
+
 ## 2. Set server-only configuration
 
 Copy `.env.example` to `.env` and set `TRUSTPAY_BACKEND=postgres`, `TRUSTPAY_DATABASE_URL`, `SUPABASE_URL`, and `SUPABASE_PUBLISHABLE_KEY`. Supply a server-only `SUPABASE_SECRET_KEY` for private document storage. A legacy `SUPABASE_SERVICE_ROLE_KEY` is also accepted. Never add the secret key, PostgreSQL URL, or account keys to `frontend/.env.local` or any `NEXT_PUBLIC_` variable.

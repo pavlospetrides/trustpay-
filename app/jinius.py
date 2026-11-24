@@ -16,12 +16,14 @@ class NormalizedInvoice:
     creditor_account: str
     date: str
     source: str
+    revision: str = "1"
 
 class InvoiceSource(Protocol):
     def list_invoices(self) -> list[NormalizedInvoice]: ...
 
 class DemoJiniusAdapter:
     """Deterministic synthetic data — NOT the Jinius API."""
+    source = "jinius_demo_adapter"
     def list_invoices(self) -> list[NormalizedInvoice]:
         return [NormalizedInvoice(**item) for item in INVOICES]
 

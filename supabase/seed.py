@@ -8,6 +8,7 @@ from uuid import UUID
 import psycopg
 from dotenv import load_dotenv
 
+from app.fixtures import synthetic_iban  # noqa: F401  (re-exported for tests)
 from app.postgres_store import PostgresStore, Principal
 from app.security import AccountProtector
 
@@ -19,15 +20,6 @@ SUPPLIERS = [
     ("SUP-004", 8, 120000, "PT-HIST", 4),
     ("SUP-005", 0, 0, "NEW", 5),
 ]
-
-
-def synthetic_iban(number: int) -> str:
-    """Valid checksum, intentionally fictitious TRST bank code."""
-    body = f"TRST000000{number:08d}"
-    raw = body + "GB00"
-    digits = "".join(str(ord(char) - 55) if char.isalpha() else char for char in raw)
-    check = 98 - int(digits) % 97
-    return f"GB{check:02d}{body}"
 
 
 def main() -> None:

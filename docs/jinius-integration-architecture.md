@@ -14,4 +14,18 @@ TrustPay currently has a synthetic `DemoJiniusAdapter` and a disabled `LiveJiniu
 4. Run normalized invoices through the same field review, supplier resolution, and deterministic `assess_payment` path as uploaded invoices. Enforce idempotency by organization, provider, external ID, and revision; retain the exact source evidence and an auditable sync outcome. Do not use AI text as payment authority.
 5. Provide a read-only sync/status surface with last successful sync time, safe error state, and record count. Keep the existing synthetic adapter as an explicitly labeled fallback for the hackathon. Leave payment initiation and automatic approval disabled even if a broader banking API is later authorized.
 
+### Implemented against the synthetic adapter (#18)
+
+Steps 3–5 run today against `DemoJiniusAdapter` in Supabase mode. An owner or admin calls `POST /api/v1/integrations/jinius/sync` or presses **Run sync** on the Integrations page. For each record, the server:
+
+- validates the provider reference, date, amount and IBAN;
+- resolves the supplier by its reference inside the caller's organization;
+- assesses the record through `PostgresStore._record_assessment`, the same write path used by uploads and manual assessments.
+
+Imported invoices are labelled "Synthetic Jinius demo" (`external_source = jinius_demo_adapter`). Their public IDs have the form `JIN-<external id>-r<revision>`. The person who ran the sync is recorded as the maker, so the existing verify and approve gates apply unchanged.
+
+`integration_imports` holds one row per (organization, provider, external id, revision), so a re-sync skips records it has already seen. Records with an unknown supplier, a missing IBAN or an invalid IBAN never become invoices. They stay as `needs_review` rows with a reason and appear on the Integrations page.
+
+Each run is stored in `sync_runs` with its counts and a fixed safe error message, and is audited (`INTEGRATION_SYNC`, `IMPORT_NEEDS_REVIEW`, `ASSESSED`). `LiveJiniusAdapter` still raises `NotImplementedError`. Resolving a review row (mapping the supplier, then assessing it) is not built yet; a corrected record arrives as a new provider revision.
+
 The Open Day questions and proof checklist are in [JINIUS_OPEN_DAY.md](JINIUS_OPEN_DAY.md). Before implementing `LiveJiniusAdapter`, the team needs Jinius's actual sandbox specification and permission to use it; no endpoint, credential format, payload, or bank capability should be inferred from the Marketplace article.

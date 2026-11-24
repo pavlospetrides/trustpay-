@@ -73,7 +73,7 @@ python -m pytest tests -q
 
 ## Try the 4 demo scenarios
 
-1. **Changed destination:** Aegean Supplies; 14 historical payments to `SYNTHETIC-CY-1842`; new invoice requests `SYNTHETIC-CY-9077`. Server produces score 75 and requires independent verification evidence before approval.
+1. **Changed destination:** Aegean Supplies; 14 historical payments to `GB70TRST00000000000001`; new invoice requests `GB43TRST00000000000099`. Server produces score 75 and requires independent verification evidence before approval.
 2. **Paid-invoice duplicate:** Meridian Office invoice `MO-2128` already appears in paid supplier history. Server produces score 100, hard-blocking both verification and approval.
 3. **Amount anomaly:** Kastro Maintenance invoice €14,900 vs historical median near €4,960. Server produces score 65 and requires supporting evidence before approval.
 4. **Normal invoice:** Palm Tree Logistics; same account and typical amount. Server produces score 0; still requires a human demo approval.

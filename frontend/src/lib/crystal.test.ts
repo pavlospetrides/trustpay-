@@ -8,7 +8,7 @@ const invoice = (supplier_id: string, status: Invoice["status"]): Invoice => ({
   iban: "•••• 9077", previous: "•••• 1842", history: 14, date: "2026-11-19",
   risk: 75, level: "high", kind: "account_change", reason: "Changed account",
   signals: [], notes: [], verified: false, verified_by: null, approved_by: null,
-  reference: "Jinius synthetic demo", source: "jinius_demo_adapter",
+  reference: "Synthetic Jinius demo", source: "jinius_demo_adapter",
 });
 
 describe("crystal view model", () => {

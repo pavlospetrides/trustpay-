@@ -30,3 +30,21 @@ def test_approval_rejects_unverified_risk_and_maker():
     row["score"] = 0
     with pytest.raises(PermissionError):
         authorize_transition(principal(ANALYST, "approver"), "approve", row)
+
+
+def test_sync_records_needing_human_review():
+    from dataclasses import replace
+    from app.jinius import DemoJiniusAdapter
+    from app.postgres_store import PostgresStore
+
+    base = DemoJiniusAdapter().list_invoices()[0]
+    assert PostgresStore._import_problem(base) is None
+    cases = {
+        "Invoice has no payment account": replace(base, creditor_account=" "),
+        "Payment account is not a valid IBAN": replace(base, creditor_account="SYNTHETIC-CY-9077"),
+        "Provider invoice reference is missing or malformed": replace(base, id="INV 2409; drop"),
+        "Invoice date is missing or invalid": replace(base, date="19/11/2026"),
+        "Invoice number or amount is missing": replace(base, amount_cents=0),
+    }
+    for reason, record in cases.items():
+        assert PostgresStore._import_problem(record) == reason

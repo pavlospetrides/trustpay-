@@ -14,6 +14,7 @@ from .database import Store
 from .documents import MAX_DOCUMENT_BYTES, PrivateInvoiceStorage, validate_invoice_document
 from .intake_store import IntakeStore
 from .invoice_ai import OpenAIInvoiceProvider, ReviewedInvoice
+from .jinius import DemoJiniusAdapter
 from .postgres_store import PostgresStore, Principal
 from .security import AccountProtector
 
@@ -257,9 +258,18 @@ def create_app(database_path: str | None = None) -> FastAPI:
     def integrations(user: Principal | None = Depends(principal)):
         if mode == "postgres":
             return store.integrations(user)
-        return {"jinius":{"status":"mock", "adapter":"DemoJiniusAdapter", "live_connected":False,
+        return {"jinius":{"status":"mock", "adapter":"DemoJiniusAdapter", "source_label":"Synthetic Jinius demo",
+                 "live_connected":False, "sync_available":False,
                  "next_step":"Request authorized sandbox documentation and scopes from organizers"},
                 "bank_payment":{"status":"disabled", "payment_initiation":False}}
+
+    @app.post("/api/v1/integrations/jinius/sync")
+    def sync_jinius(user: Principal | None = Depends(principal)):
+        if mode != "postgres":
+            raise HTTPException(403, "Integration sync requires PostgreSQL mode")
+        # LiveJiniusAdapter stays disabled until Jinius supplies an API contract and sandbox access (#2).
+        try: return store.sync_invoices(DemoJiniusAdapter(), user)
+        except PermissionError as e: raise HTTPException(403, str(e)) from e
 
     @app.post("/api/v1/invoices/assess", status_code=201)
     def assess(payload: AssessmentInput, user: Principal | None = Depends(principal)):

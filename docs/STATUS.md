@@ -1,6 +1,14 @@
 # Team status
 
-Updated 24 November 2026 for one-command startup ([#13](https://github.com/pavlospetrides/trustpay-/issues/13)).
+Updated 24 November 2026 for automatic Jinius sync against the synthetic adapter ([#18](https://github.com/pavlospetrides/trustpay-/issues/18)) and one-command startup ([#13](https://github.com/pavlospetrides/trustpay-/issues/13)).
+
+## Automatic Jinius sync, synthetic adapter (#18)
+
+In Supabase mode, an owner or admin can run **Run sync** on the Integrations page (`POST /api/v1/integrations/jinius/sync`). Each `DemoJiniusAdapter` invoice is then assessed once through the same deterministic path as uploads and enters the normal maker-checker queue, labelled "Synthetic Jinius demo". Records with an unknown supplier or a missing or invalid IBAN go to human review instead. Runs, counts and safe errors are stored in `sync_runs` and the audit log.
+
+The demo fixtures now use the same synthetic IBANs as the Postgres seed, so the imported changed-IBAN invoice scores 75. Live Jinius access is still pending ([#2](https://github.com/pavlospetrides/trustpay-/issues/2)).
+
+**Owner action:** apply the additive migration `20261124000100_integration_imports.sql` to the hosted development project by hand (see [Supabase setup](supabase-setup.md)). Never use `db push` there. Until then the Integrations page reports sync as unavailable. Verification evidence is on the PR for #18.
 
 ## One-command startup (#13)
 

@@ -30,7 +30,7 @@ export function InvoiceTable({ invoices }: { invoices: Invoice[] }) {
       <td className="numeric">{date(invoice.date)}</td>
       <td><strong>{invoice.risk}/100</strong><span className="cell-sub">{invoice.reason}</span></td>
       <td><Badge status={invoice.status}/></td>
-      <td className="muted">{invoice.source === "jinius_demo_adapter" ? "Jinius demo adapter" : invoice.source === "uploaded" ? "Uploaded invoice" : invoice.source === "synthetic_seed" ? "Synthetic seed" : "Manual demo"}</td>
+      <td className="muted">{invoice.source === "jinius_demo_adapter" ? "Synthetic Jinius demo" : invoice.source === "uploaded" ? "Uploaded invoice" : invoice.source === "synthetic_seed" ? "Synthetic seed" : "Manual demo"}</td>
     </tr>)}
   </tbody></table></div>;
 }
