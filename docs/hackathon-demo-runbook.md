@@ -6,7 +6,8 @@ Use only the designated Supabase development project (`dtoqrscbbdacqpaqxgpr`) an
 
 1. Keep `.env` and `frontend/.env.local` untracked. Confirm `TRUSTPAY_BACKEND=postgres`, `TRUSTPAY_ENVIRONMENT=development`, the development project reference in both URLs, and a TLS-required database URL. Never put secret keys or the database URL in `NEXT_PUBLIC_` variables.
 2. Run `npm run dev` in `frontend`; it starts FastAPI and Next.js together (Ctrl+C stops both). Open `http://127.0.0.1:3000/login`. `/api/health` should report `supabase-postgres` and `payment_initiation: false`.
-3. The ignored `.env.e2e` file holds four generated synthetic test accounts for maker, verifier, approver, and outsider. Use it only on this machine and development project. Do not paste passwords into screenshots, issues, or commits. Existing teammates' accounts and passwords were not changed.
+3. The ignored `.env.e2e` file holds the hosted-test accounts; copy [.env.e2e.example](../.env.e2e.example), which explains the four personas (maker, verifier, approver, outsider) and the membership each needs. Share passwords privately, never in screenshots, issues, or commits. As of 24 November the team's walkthrough used `boos@gmail.com` (owner, uploads), `analyst@gmail.com` (verifies) and `approver@gmail.com` (approves) in Org A; an Org B-only outsider account is still to be created (see PR #15). `frontend/.env.local` holds only `NEXT_PUBLIC_SUPABASE_URL` and `NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY`.
+4. Install the hosted-test browser once with `.venv/bin/python -m pip install playwright` and `.venv/bin/python -m playwright install chromium` (`npm run dev` creates `.venv`).
 
 ## Demonstration
 

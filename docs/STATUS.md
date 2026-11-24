@@ -4,7 +4,7 @@ Updated 24 November 2026 for one-command startup ([#13](https://github.com/pavlo
 
 ## One-command startup (#13)
 
-`cd frontend && npm install && npm run dev` now provisions `.venv`, starts FastAPI (port 8000, or 8001 if busy), waits for health, then starts Next.js with the proxy pointed at that port. Ctrl+C stops both. The FastAPI backend is unchanged. Evidence and the platforms tested are in the #13 PR. Replacing Python with a Node.js/TypeScript runtime is a separate post-event decision tracked in [#14](https://github.com/pavlospetrides/trustpay-/issues/14).
+`cd frontend && npm install && npm run dev` now provisions `.venv`, starts FastAPI (port 8000, or 8001 if busy), waits for health, then starts Next.js with the proxy pointed at that port. Ctrl+C stops both. The FastAPI backend is unchanged. Verified on macOS (PR #15): all local checks and CI; SQLite demo flow; Supabase development mode with a signed-in changed-IBAN walkthrough (owner uploads, score 75, self-verification and early approval refused, analyst verifies, analyst approval refused, approver approves, one approval row, complete audit chain); hosted policy scenarios test passed. Still open on #13: the hosted browser test's outsider account (Org B), Windows, and a hand-pressed Ctrl+C. Seen under parallel page loads: transient "Authentication service unavailable" / "Database unavailable" responses, tracked as the next fix. Replacing Python with a Node.js/TypeScript runtime is a separate post-event decision tracked in [#14](https://github.com/pavlospetrides/trustpay-/issues/14).
 
 ## Phase 2 handoff
 
