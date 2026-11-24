@@ -4,7 +4,7 @@ import { decimalToCents } from "./money";
 export interface HistoricalPayment { iban_fingerprint: string; iban_last4: string; amount: string; historical_invoice_number: string | null }
 export interface InvoiceRow {
   public_id: string; supplier_public_id: string; supplier_name: string; invoice_number: string;
-  total_amount: string; iban_last4: string; issue_date: string | Date; score: number;
+  total_amount: string; iban_last4: string; issue_date: string; score: number;
   severity: string; kind: string; explanation: string; status: Invoice["status"];
   verified_by: string | null; approved_by: string | null; external_source: string;
   ai_explanation: string | null; ai_explanation_method: Invoice["ai_explanation_method"];
@@ -22,7 +22,7 @@ export function presentInvoice(row: InvoiceRow, history: HistoricalPayment[], si
     id: row.public_id, supplier_id: row.supplier_public_id, supplier: row.supplier_name, short: row.supplier_name,
     invoice: row.invoice_number, amount_cents: amountCents, amount: amountCents / 100, iban: mask(row.iban_last4),
     previous: previous ? mask(previous) : "New supplier", history: history.length,
-    date: row.issue_date instanceof Date ? row.issue_date.toISOString().slice(0, 10) : row.issue_date.slice(0, 10),
+    date: row.issue_date,
     risk: row.score, level: row.severity, kind: row.kind, reason: row.explanation, signals,
     ai_explanation: row.ai_explanation, ai_explanation_method: row.ai_explanation_method,
     notes: signals.length ? signals.map((signal) => signal.explanation) : [row.explanation],

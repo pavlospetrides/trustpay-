@@ -1,5 +1,9 @@
-import { Pool, type PoolClient } from "pg";
+import { Pool, types, type PoolClient } from "pg";
 import { readFileSync } from "node:fs";
+
+// DATE has no time zone. Keep PostgreSQL's "YYYY-MM-DD" text, as Python's date did; pg's default Date at local
+// midnight turns 2026-11-25 into 2026-11-24 in UTC when the server runs east of UTC (Cyprus).
+types.setTypeParser(types.builtins.DATE, (value: string) => value);
 
 export interface QueryConnection {
   // Row shapes depend on the SQL projection and are checked at the repository boundary.

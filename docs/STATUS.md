@@ -13,6 +13,11 @@ The Windows baseline before migration was Python `47 passed, 6 skipped` and fron
 - **#22 ported.** Unknown-supplier Jinius imports can be resolved again (`POST /api/v1/integrations/jinius/imports/{external_id}/{revision}/resolve`), with the keyed record digest compatible with rows the Python sync already stored. The Integrations page changes from #22 are included. `JiniusSync` takes its feed as an `InvoiceSource`, like the Python adapter seam.
 - **Database tests ported.** The four Python `tests/rls` scenarios now run as `frontend/src/lib/server/testing/disposable-db.test.ts` in the CI database job, against the disposable local Supabase stack.
 
+Review fixes (25 Nov, Theodoros's review of #24 and #23):
+- duplicate checks fold `ẞ`, `ß` and `ss` together and strip whitespace exactly as Python did (a missed duplicate scored 0 and `ready`);
+- a Supabase Auth outage answers 503 after one retry, not 401 "Invalid or expired access token";
+- invoice dates stay the stored calendar day (`DATE` is kept as text); before, a server east of UTC showed the previous day.
+
 Uploads are now capped by counting bytes as they arrive, not by trusting `Content-Length` (security review of this branch).
 
 Findings that still wait for the owner:

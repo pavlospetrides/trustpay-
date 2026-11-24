@@ -44,3 +44,5 @@ jobs:
         env:
           TRUSTPAY_TEST_DATABASE_URL: postgresql://postgres:postgres@127.0.0.1:54322/postgres
           TRUSTPAY_TEST_CONFIRM: disposable
+          # East of UTC, so a DATE converted through UTC would show the previous day.
+          TZ: Asia/Nicosia

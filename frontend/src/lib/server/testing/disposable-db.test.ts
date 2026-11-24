@@ -21,7 +21,7 @@ describe.skipIf(!disposableUrl)("disposable Supabase database", () => {
     const { call } = apiClient({ maker: { user: maker, org: orgA }, outsider: { user: outsider, org: orgB }, outsiderA: { user: outsider, org: orgA }, verifier: { user: verifier, org: orgA }, approver: { user: approver, org: orgA } });
     const id = `TEST-${uuid().slice(0, 12)}`;
     const created = await call("POST", "/api/v1/invoices/assess", "maker", { id, supplier_id: "TEST-SUP", invoice_number: "NEW-001", amount_cents: 842000, creditor_account: syntheticIban(99), invoice_date: "2026-11-23" });
-    expect([created.status, created.body.risk, created.body.history]).toEqual([201, 75, 14]);
+    expect([created.status, created.body.risk, created.body.history, created.body.date]).toEqual([201, 75, 14, "2026-11-23"]);
     const path = `/api/v1/invoices/${id}`;
     expect((await call("GET", path, "outsider")).status).toBe(404);
     expect((await call("GET", path, "outsiderA")).status).toBe(403);
