@@ -21,14 +21,36 @@ async function rawRequest(path:string, init?:RequestInit):Promise<Response> {
   if (!response.ok) { const data = await response.json().catch(() => ({})); const detail = data.detail; throw new ApiError(typeof detail === "string" ? detail : Array.isArray(detail) ? detail.map((item:{msg?:string})=>item.msg).join("; ") : `Request failed (${response.status})`, response.status); }
   return response;
 }
+// Identical GETs already in flight (same user, organization and path) share one request.
+// Nothing is kept after the response arrives, so data is never stale.
+const inflight = new Map<string, Promise<unknown>>();
 async function request<T>(path:string, init?:RequestInit):Promise<T> {
-  const response = await rawRequest(path, init);
-  return response.json() as Promise<T>;
+  if (init?.method && init.method !== "GET") return (await rawRequest(path, init)).json() as Promise<T>;
+  const headers = await authHeaders();
+  const key = `${headers.Authorization ?? ""}|${headers["X-Organization-Id"] ?? ""}|${path}`;
+  let pending = inflight.get(key) as Promise<T> | undefined;
+  if (!pending) {
+    pending = rawRequest(path, init).then((response) => response.json() as Promise<T>).finally(() => inflight.delete(key));
+    inflight.set(key, pending);
+  }
+  return pending;
+}
+// The signed-in user's memberships, remembered per access token for this tab (a new sign-in or reload refreshes it).
+const memberships = new Map<string, Promise<{id:string;name:string;role:string}[]>>();
+async function organizations() {
+  const token = (await authHeaders()).Authorization ?? "";
+  let cached = memberships.get(token);
+  if (!cached) {
+    cached = request<{id:string;name:string;role:string}[]>("/v1/me/organizations");
+    memberships.set(token, cached);
+    cached.catch(() => memberships.delete(token));
+  }
+  return cached;
 }
 const post = <T>(path:string, body?:unknown) => request<T>(path,{method:"POST",body:body ? JSON.stringify(body) : undefined});
 export const api = {
   health:()=>request<Health>("/health"), invoices:()=>request<Invoice[]>("/v1/invoices"), invoice:(id:string)=>request<Invoice>(`/v1/invoices/${encodeURIComponent(id)}`),
-  organizations:()=>request<{id:string;name:string;role:string}[]>("/v1/me/organizations"),
+  organizations,
   uploadIntake:(file:File,key:string)=>{const form=new FormData();form.set("file",file);return request<InvoiceIntake>("/v1/invoice-intakes",{method:"POST",body:form,headers:{"Idempotency-Key":key}});},
   intake:(id:string)=>request<InvoiceIntake>(`/v1/invoice-intakes/${encodeURIComponent(id)}`),
   retryIntake:(id:string)=>post<InvoiceIntake>(`/v1/invoice-intakes/${encodeURIComponent(id)}/extract`),
