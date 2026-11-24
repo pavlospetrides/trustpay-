@@ -1,14 +1,18 @@
 # Team status
 
-Updated 23 November 2026 after hosted Phase 2 development verification.
+Updated 24 November 2026 for one-command startup ([#13](https://github.com/pavlospetrides/trustpay-/issues/13)).
+
+## One-command startup (#13)
+
+`cd frontend && npm install && npm run dev` now provisions `.venv`, starts FastAPI (port 8000, or 8001 if busy), waits for health, then starts Next.js with the proxy pointed at that port. Ctrl+C stops both. The FastAPI backend is unchanged. Evidence and the platforms tested are in the #13 PR. Replacing Python with a Node.js/TypeScript runtime is a separate post-event decision tracked in [#14](https://github.com/pavlospetrides/trustpay-/issues/14).
 
 ## Phase 2 handoff
 
-PR #11 (`feat/ai-invoice-phase2`) builds on Phase 1, which was merged in PRs #9 and #10. The [latest Phase 2 CI run](https://github.com/pavlospetrides/trustpay-/actions/runs/45245609886) passed app and disposable database jobs. On the designated hosted **development** project, the additive Phase 2 migration was applied in one transaction after checking project identity and synthetic-only organizations. Four new synthetic Auth test users were created without changing existing accounts. A real Chromium browser run passed password sign-in, PDF upload to private Storage, extracted-field review, 14-payment changed-IBAN analysis (score 75), blocked approval and maker self-verification, distinct verifier and approver actions, and persisted audit events. Direct Supabase RLS and Storage checks allowed the maker and denied the outsider. The local opt-in browser test is [test_phase2_browser.py](../tests/hosted/test_phase2_browser.py); the [demo runbook](hackathon-demo-runbook.md) explains operation. Live OpenAI calls remain unverified because no `OPENAI_API_KEY` is configured. The project has no CLI migration-history table; do not use `db push` until history is reconciled. The dashboard plan and full quota are also unverified, though the active database uses about 12 MB and Storage was empty before testing.
+PR #11 (`feat/ai-invoice-phase2`) and the hosted verification PR #12 are merged to `main` (`c8ae6b1`); Phase 1 was merged in PRs #9 and #10. The [latest Phase 2 CI run](https://github.com/pavlospetrides/trustpay-/actions/runs/45245609886) passed app and disposable database jobs. On the designated hosted **development** project, the additive Phase 2 migration was applied in one transaction after checking project identity and synthetic-only organizations. Four new synthetic Auth test users were created without changing existing accounts. A real Chromium browser run passed password sign-in, PDF upload to private Storage, extracted-field review, 14-payment changed-IBAN analysis (score 75), blocked approval and maker self-verification, distinct verifier and approver actions, and persisted audit events. Direct Supabase RLS and Storage checks allowed the maker and denied the outsider. The local opt-in browser test is [test_phase2_browser.py](../tests/hosted/test_phase2_browser.py); the [demo runbook](hackathon-demo-runbook.md) explains operation. Live OpenAI calls remain unverified because no `OPENAI_API_KEY` is configured. The project has no CLI migration-history table; do not use `db push` until history is reconciled. The dashboard plan and full quota are also unverified, though the active database uses about 12 MB and Storage was empty before testing.
 
 ## Branch status
 
-The full FastAPI/SQLite backend, legacy HTML client, and Next.js Crystal frontend were imported in PR #8. Supabase Phase 1 was merged to `main` in PRs #9 and #10. PR #11 remains a draft for human review. The repository is public; no credentials or real payment records belong in it. Real Jinius access and payment initiation remain absent; see the [official-source integration boundary](jinius-integration-architecture.md).
+The full FastAPI/SQLite backend, legacy HTML client, and Next.js Crystal frontend were imported in PR #8. Supabase Phase 1 was merged to `main` in PRs #9 and #10, and Phase 2 in PRs #11 and #12. The repository is public; no credentials or real payment records belong in it. Real Jinius access and payment initiation remain absent; see the [official-source integration boundary](jinius-integration-architecture.md).
 
 ## Verification on the import branch
 
@@ -18,7 +22,7 @@ For the Supabase branch, the local Python suite reports 27 passed and 1 PostgreS
 
 ## First work
 
-1. Verify browser password sign-in and private document storage against the configured development project, then obtain human review before merge.
+1. Repeat the changed-IBAN demo with `npm run dev` on the demo machine in Supabase development mode, and on Windows.
 2. Confirm participant Jinius API fields, access and permitted sandbox operations.
 3. Agree the actual API contract, supplier trust history and case approval states before frontend integration.
 4. Build the changed-account demo with deterministic rules and human verification, then record acceptance evidence.

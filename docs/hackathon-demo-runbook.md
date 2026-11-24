@@ -5,7 +5,7 @@ Use only the designated Supabase development project (`dtoqrscbbdacqpaqxgpr`) an
 ## Start and check
 
 1. Keep `.env` and `frontend/.env.local` untracked. Confirm `TRUSTPAY_BACKEND=postgres`, `TRUSTPAY_ENVIRONMENT=development`, the development project reference in both URLs, and a TLS-required database URL. Never put secret keys or the database URL in `NEXT_PUBLIC_` variables.
-2. Start `py -m uvicorn app.main:app --host 127.0.0.1 --port 8000` from the repository root. Start `npm run dev` in `frontend`. Open `http://127.0.0.1:3000/login`. `/api/health` should report `supabase-postgres` and `payment_initiation: false`.
+2. Run `npm run dev` in `frontend`; it starts FastAPI and Next.js together (Ctrl+C stops both). Open `http://127.0.0.1:3000/login`. `/api/health` should report `supabase-postgres` and `payment_initiation: false`.
 3. The ignored `.env.e2e` file holds four generated synthetic test accounts for maker, verifier, approver, and outsider. Use it only on this machine and development project. Do not paste passwords into screenshots, issues, or commits. Existing teammates' accounts and passwords were not changed.
 
 ## Demonstration
