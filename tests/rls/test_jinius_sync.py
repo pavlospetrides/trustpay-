@@ -1,7 +1,9 @@
 """Automatic Jinius sync (#18). Runs only against an explicitly designated disposable migrated Supabase database."""
 
 import base64
+import json
 import os
+from concurrent.futures import ThreadPoolExecutor
 from dataclasses import replace
 from decimal import Decimal
 from uuid import uuid4
@@ -39,23 +41,31 @@ class BrokenAdapter:
         raise RuntimeError("provider said GB43TRST00000000000099")
 
 
-def test_jinius_sync_is_idempotent_isolated_and_keeps_maker_checker(monkeypatch):
+def as_member(con, user):
+    """Act as a signed-in browser client so RLS and grants apply, not the service connection."""
+    con.execute("set local role authenticated")
+    con.execute("select set_config('request.jwt.claims', %s, true)", (json.dumps({"sub": str(user), "role": "authenticated"}),))
+
+
+def test_jinius_sync_is_idempotent_isolated_and_keeps_maker_checker(monkeypatch, caplog):
     dsn = os.environ["TRUSTPAY_TEST_DATABASE_URL"]
-    org_a, org_b = uuid4(), uuid4()
-    owner, analyst, approver, owner_b = (uuid4() for _ in range(4))
+    org_a, org_b, org_c = uuid4(), uuid4(), uuid4()
+    owner, analyst, approver, owner_b, owner_c = (uuid4() for _ in range(5))
     supplier_a, account_id = uuid4(), uuid4()
     protected = AccountProtector(b"a" * 32, b"b" * 32)
     ciphertext, fingerprint, last4 = protected.protect(synthetic_iban(1))
     with psycopg.connect(dsn) as con:
-        for user in (owner, analyst, approver, owner_b):
+        for user in (owner, analyst, approver, owner_b, owner_c):
             con.execute("insert into auth.users(id,email) values (%s,%s)", (user, f"{user}@example.invalid"))
-        for org, label in ((org_a, "A"), (org_b, "B")):
+        for org, label in ((org_a, "A"), (org_b, "B"), (org_c, "C")):
             con.execute("insert into public.organizations(id,name,country) values (%s,%s,'CY')",
                         (org, f"Synthetic sync test {label}"))
         for org, user, role in ((org_a, owner, "owner"), (org_a, analyst, "analyst"),
-                                (org_a, approver, "approver"), (org_b, owner_b, "owner")):
+                                (org_a, approver, "approver"), (org_b, owner_b, "owner"), (org_c, owner_c, "owner")):
             con.execute("""insert into public.organization_memberships(organization_id,user_id,role)
                 values (%s,%s,%s)""", (org, user, role))
+        con.execute("""insert into public.suppliers(id,organization_id,public_id,name)
+            values (%s,%s,'SUP-004','Synthetic concurrent supplier')""", (uuid4(), org_c))
         # Org A knows only SUP-001 (the demo changed-IBAN supplier); the other demo suppliers are unknown.
         con.execute("""insert into public.suppliers(id,organization_id,public_id,name)
             values (%s,%s,'SUP-001','Aegean Supplies Ltd')""", (supplier_a, org_a))
@@ -153,9 +163,49 @@ def test_jinius_sync_is_idempotent_isolated_and_keeps_maker_checker(monkeypatch)
     assert reasons["INV-9002"] == "Payment account is not a valid IBAN"
     assert store.invoice("JIN-INV-2409-r2", principal)["risk"] == 75
 
-    # A provider failure is recorded with a safe message, never the raw exception text.
+    # A run that never reached its final write is closed by the next sync instead of showing "Running" forever.
+    with psycopg.connect(dsn) as con:
+        stale = con.execute("""insert into public.sync_runs(organization_id,connection_id,status,started_at)
+            select organization_id,id,'running',now()-interval '1 hour' from public.integration_connections
+            where organization_id=%s and provider='jinius' returning id""", (org_a,)).fetchone()[0]
+
+    # A provider failure is recorded with a safe message, never the raw exception text, in the API or the log.
+    caplog.clear()
     failed = store.sync_invoices(BrokenAdapter(), principal)
     assert failed["status"] == "failed" and "GB43" not in failed["safe_error"]
+    assert "RuntimeError" in caplog.text and "GB43" not in caplog.text
+    with psycopg.connect(dsn) as con:
+        assert con.execute("select status, safe_error is not null from public.sync_runs where id=%s",
+                           (stale,)).fetchone() == ("failed", True)
+
+    # Overlapping syncs for one organization still import each record once and assess it once.
+    principal_c = Principal(owner_c, org_c, "owner")
+    with ThreadPoolExecutor(2) as pool:
+        runs = list(pool.map(lambda _: store.sync_invoices(DemoJiniusAdapter(), principal_c), range(2)))
+    assert sum(r["records_created"] + r["records_needs_review"] for r in runs) == 4
+    assert sum(r["records_skipped"] for r in runs) == 4
+    with psycopg.connect(dsn) as con:
+        assert con.execute("select count(*) from public.integration_imports where organization_id=%s",
+                           (org_c,)).fetchone()[0] == 4
+        assert con.execute("""select count(*) from public.invoices i join public.risk_assessments a
+            on a.organization_id=i.organization_id and a.invoice_id=i.id where i.organization_id=%s""",
+            (org_c,)).fetchone()[0] == 1
+
+    # RLS on integration_imports, checked directly: members read their own rows, outsiders see none,
+    # and browser clients cannot write.
+    with psycopg.connect(dsn) as con:
+        as_member(con, analyst)
+        assert con.execute("select count(*) from public.integration_imports").fetchone()[0] == 7
+    with psycopg.connect(dsn) as con:
+        as_member(con, owner_b)
+        assert con.execute("select count(*) from public.integration_imports where organization_id=%s",
+                           (org_a,)).fetchone()[0] == 0
+    for statement in ("update public.integration_imports set status='assessed'",
+                      "delete from public.integration_imports"):
+        with psycopg.connect(dsn) as con:
+            as_member(con, owner)
+            with pytest.raises(psycopg.errors.InsufficientPrivilege):
+                con.execute(statement)
 
     actions = [entry["action"] for entry in client.get("/api/v1/audit", headers=headers("owner")).json()]
     assert {"INTEGRATION_SYNC", "IMPORT_NEEDS_REVIEW", "ASSESSED", "VERIFY", "APPROVE"}.issubset(actions)

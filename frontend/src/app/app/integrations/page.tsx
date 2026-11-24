@@ -17,9 +17,8 @@ export default function Integrations() {
     setBusy(true); setError(""); setMessage("");
     try {
       const run = await api.syncJinius();
-      setMessage(run.status === "success"
-        ? `Sync finished: ${run.records_created} assessed, ${run.records_needs_review} sent to human review, ${run.records_skipped} already imported.`
-        : run.safe_error || "Sync failed.");
+      // A failed run comes back as HTTP 200; its safe error shows once, in red, from the refreshed last run.
+      if (run.status === "success") setMessage(`Sync finished: ${run.records_created} assessed, ${run.records_needs_review} sent to human review, ${run.records_skipped} already imported.`);
     } catch (e) { setError(e instanceof Error ? e.message : "Sync failed"); }
     finally { setBusy(false); await feed.refresh(); }
   }

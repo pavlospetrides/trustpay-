@@ -39,12 +39,14 @@ def test_sync_records_needing_human_review():
 
     base = DemoJiniusAdapter().list_invoices()[0]
     assert PostgresStore._import_problem(base) is None
-    cases = {
-        "Invoice has no payment account": replace(base, creditor_account=" "),
-        "Payment account is not a valid IBAN": replace(base, creditor_account="SYNTHETIC-CY-9077"),
-        "Provider invoice reference is missing or malformed": replace(base, id="INV 2409; drop"),
-        "Invoice date is missing or invalid": replace(base, date="19/11/2026"),
-        "Invoice number or amount is missing": replace(base, amount_cents=0),
-    }
-    for reason, record in cases.items():
+    cases = [
+        ("Invoice has no payment account", replace(base, creditor_account=" ")),
+        ("Payment account is not a valid IBAN", replace(base, creditor_account="SYNTHETIC-CY-9077")),
+        ("Provider invoice reference is missing or malformed", replace(base, id="INV 2409; drop")),
+        # (INV-2409, "b-rc") would share JIN-INV-2409-rb-rc with (INV-2409-rb, "c"), so revisions cannot hold "-".
+        ("Provider invoice reference is missing or malformed", replace(base, revision="b-rc")),
+        ("Invoice date is missing or invalid", replace(base, date="19/11/2026")),
+        ("Invoice number or amount is missing", replace(base, amount_cents=0)),
+    ]
+    for reason, record in cases:
         assert PostgresStore._import_problem(record) == reason
