@@ -18,7 +18,7 @@ This document tracks the migration branch `feat/node-typescript-backend-migratio
 - [x] Port all API handlers with Zod request validation and compatible status codes.
 - [x] Remove proxy and Python launcher after Node routes passed the compatibility tests.
 - [x] Verify local and hosted signed-in browser workflows, direct RLS and Storage isolation, typecheck, lint, tests, and production build.
-- [ ] Open PR and obtain human review before merge.
+- [x] Open [draft PR #23](https://github.com/pavlospetrides/trustpay-/pull/23). Human review is required before merge.
 
 ## API compatibility matrix
 
@@ -62,4 +62,4 @@ PostgreSQL writes must run in transactions. Every assessment, verification, appr
 - Signed-in Chromium Playwright: `2 passed`, including a full browser upload/review/75-point analysis/verification/approval/audit walkthrough.
 - The local SQLite browser overview showed the four seed invoices. The development server served the UI and API from one Next.js process. Docker and the Supabase CLI were unavailable in this Windows environment, so local `supabase test db` was not rerun; the existing SQL pgTAP suite remains in CI.
 - No live OpenAI API request was run because no API key is configured. The SDK adapter's schema and fallback paths have mocked unit coverage. Live Jinius access and payment initiation remain disabled.
-- GitHub CLI authentication is unavailable in this workspace; the dedicated branch is ready for a PR after branch publication. No branch was merged.
+- Draft [PR #23](https://github.com/pavlospetrides/trustpay-/pull/23) is open from the dedicated branch. No branch was merged; human review remains pending.
