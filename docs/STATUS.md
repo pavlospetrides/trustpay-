@@ -13,8 +13,11 @@ The Windows baseline before migration was Python `47 passed, 6 skipped` and fron
 - **#22 ported.** Unknown-supplier Jinius imports can be resolved again (`POST /api/v1/integrations/jinius/imports/{external_id}/{revision}/resolve`), with the keyed record digest compatible with rows the Python sync already stored. The Integrations page changes from #22 are included. `JiniusSync` takes its feed as an `InvoiceSource`, like the Python adapter seam.
 - **Database tests ported.** The four Python `tests/rls` scenarios now run as `frontend/src/lib/server/testing/disposable-db.test.ts` in the CI database job, against the disposable local Supabase stack.
 
-Two findings from the #19/#21 review still wait for the owner:
+Uploads are now capped by counting bytes as they arrive, not by trusting `Content-Length` (security review of this branch).
+
+Findings that still wait for the owner:
 - whether the person who ran the sync should also be barred from verifying a resolved invoice (needs a schema change);
+- the same question for uploads: the user who analyzes an intake is recorded as maker, so a different uploader or reviewer could later verify it. Python behaved the same way; a fix needs `uploaded_by`/`reviewed_by` checks on the invoice (schema change);
 - a separate issue for country-specific IBAN length checks (pre-existing, also affects uploads).
 
 Review rows queued before the record-digest change cannot be resolved; they clear through a new provider revision.

@@ -47,10 +47,25 @@ function errorResponse(error: unknown, mode: ApiContext["mode"]): Response {
   return json({ detail: "Internal server error" }, 500);
 }
 
-async function uploadFile(request: Request): Promise<{ data: Buffer; contentType: string }> {
+// Counts bytes as they arrive, so a missing or false Content-Length cannot make the server buffer an unbounded body.
+async function boundedBody(request: Request, limit: number): Promise<Buffer> {
   const length = Number(request.headers.get("Content-Length") || 0);
-  if (length > MAX_DOCUMENT_BYTES + 100_000) throw new Error("Invoice document exceeds the 10 MB limit");
-  const form = await request.formData();
+  if (length > limit) throw new Error("Invoice document exceeds the 10 MB limit");
+  if (!request.body) return Buffer.alloc(0);
+  const reader = request.body.getReader();
+  const chunks: Uint8Array[] = [];
+  let total = 0;
+  for (let part = await reader.read(); !part.done; part = await reader.read()) {
+    total += part.value.byteLength;
+    if (total > limit) { await reader.cancel(); throw new Error("Invoice document exceeds the 10 MB limit"); }
+    chunks.push(part.value);
+  }
+  return Buffer.concat(chunks);
+}
+
+async function uploadFile(request: Request): Promise<{ data: Buffer; contentType: string }> {
+  const body = await boundedBody(request, MAX_DOCUMENT_BYTES + 100_000);
+  const form = await new Response(new Uint8Array(body), { headers: { "Content-Type": request.headers.get("Content-Type") ?? "" } }).formData();
   const file = form.get("file");
   if (!(file instanceof File)) throw new Error("A file is required");
   if (file.size > MAX_DOCUMENT_BYTES) throw new Error("Invoice document exceeds the 10 MB limit");
