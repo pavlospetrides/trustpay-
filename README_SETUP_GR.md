@@ -25,21 +25,15 @@ trustpay-ai-mvp/
 
 4. Το Codex θα δημιουργήσει το `frontend/` και θα σου δώσει τις ακριβείς εντολές εκκίνησης.
 
-## Ενδεικτική εκκίνηση μετά την υλοποίηση (δύο terminals)
-
-**Terminal A — FastAPI (από root του project):**
-
-```powershell
-python -m uvicorn app.main:app --host 127.0.0.1 --port 8000
-```
-
-**Terminal B — Next.js:**
+## Εκκίνηση (μία εντολή)
 
 ```powershell
 cd frontend
 npm install
 npm run dev
 ```
+
+Το `npm run dev` δημιουργεί το `.venv`, εγκαθιστά το `requirements.txt` την πρώτη φορά και ξεκινά FastAPI και Next.js μαζί. Το Ctrl+C σταματά και τα δύο.
 
 **URL:** http://localhost:3000 (frontend), http://127.0.0.1:8000/docs (backend API documentation).
 

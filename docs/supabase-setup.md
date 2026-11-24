@@ -43,12 +43,12 @@ The script checks for a real Auth user and refuses unexpected data in the fixed 
 ## 4. Run and verify
 
 ```powershell
-py -m pip install -r requirements.txt
-py -m uvicorn app.main:app --host 127.0.0.1 --port 8000
 cd frontend
 npm install
 npm run dev
 ```
+
+`npm run dev` installs the Python requirements into `.venv` and starts FastAPI and Next.js together; FastAPI reads the root `.env`, Next.js reads `frontend/.env.local`.
 
 Open `http://127.0.0.1:3000/login`. Sign in with an Auth user linked to the synthetic organization. Review the five seeded invoices, verify the changed account with a separate human actor, then approve with the distinct approver. The API health route reports `supabase-postgres`. The Crystal UI uses real persisted API responses; it does not read PostgreSQL or hold a service key in the browser.
 

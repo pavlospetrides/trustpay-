@@ -17,7 +17,7 @@ async function rawRequest(path:string, init?:RequestInit):Promise<Response> {
   let response:Response;
   const headers = await authHeaders(init?.body);
   try { response = await fetch(`/api${path}`, { cache:"no-store", ...init, headers:{...headers, ...init?.headers} }); }
-  catch { throw new ApiError("Cannot reach the local FastAPI service. Start it on 127.0.0.1:8000 and retry.", 0); }
+  catch { throw new ApiError("Cannot reach the TrustPay API. Check the npm run dev terminal for FastAPI errors, then retry.", 0); }
   if (!response.ok) { const data = await response.json().catch(() => ({})); const detail = data.detail; throw new ApiError(typeof detail === "string" ? detail : Array.isArray(detail) ? detail.map((item:{msg?:string})=>item.msg).join("; ") : `Request failed (${response.status})`, response.status); }
   return response;
 }
