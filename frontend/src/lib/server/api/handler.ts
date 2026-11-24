@@ -22,7 +22,7 @@ const isoDate = z.string().refine((value) => /^\d{4}-\d{2}-\d{2}$/.test(value) &
 const assessmentInput = z.strictObject({ id: z.string().min(3).max(64).regex(/^[A-Za-z0-9_-]+$/), supplier_id: z.string().min(3).max(32), invoice_number: z.string().min(2).max(70), amount_cents: z.number().int().positive().max(100_000_000_000), creditor_account: z.string().min(4).max(64), invoice_date: isoDate });
 const reviewInput = z.strictObject({ fields: reviewedInvoiceSchema, supplier_id: z.string().nullable(), create_new_supplier: z.boolean() });
 const verifyInput = z.strictObject({ evidence_note: z.string().min(12).max(500) });
-const invoiceOutput = z.object({ id: z.string(), supplier_id: z.string(), amount_cents: z.number().int(), risk: z.number().int().min(0).max(100), iban: z.string().startsWith("••••"), status: z.enum(["ready", "needs_review", "blocked", "hold", "approved"]), signals: z.array(z.object({ code: z.string(), explanation: z.string() })) }).passthrough();
+const invoiceOutput = z.object({ id: z.string(), supplier_id: z.string(), amount_cents: z.number().int(), risk: z.number().int().min(0).max(100), iban: z.string().startsWith("••••"), status: z.enum(["ready", "needs_review", "blocked", "hold", "approved"]), signals: z.array(z.object({ code: z.string(), explanation: z.string() }).passthrough()) }).passthrough();
 const invoiceJson = (value: Invoice, status = 200) => json(invoiceOutput.parse(value), status);
 
 function errorResponse(error: unknown, mode: ApiContext["mode"]): Response {
@@ -38,7 +38,7 @@ function errorResponse(error: unknown, mode: ApiContext["mode"]): Response {
   if (/limit reached|retry limit/.test(message)) return json({ detail: message }, 429);
   if (/not found|Unknown demo supplier|Supplier not found|Assessment not found/.test(message)) return json({ detail: message }, 404);
   if (/already exists|Idempotency key already used/.test(message)) return json({ detail: message }, 409);
-  if (/Role|cannot independently|Maker-checker|needs independent verification|not ready|cannot be verified|cannot be placed|cannot be approved|unavailable in PostgreSQL mode|requires PostgreSQL mode/.test(message)) return json({ detail: message }, mode === "sqlite" ? 409 : 403);
+  if (/Role|cannot independently|Maker-checker|needs independent verification|requires independent verification|already been recorded|not ready|cannot be verified|cannot be placed|cannot be approved|unavailable in PostgreSQL mode|requires PostgreSQL mode/.test(message)) return json({ detail: message }, mode === "sqlite" ? 409 : 403);
   if (/Invalid|valid|must|Only|Select|Review|cannot|could not be read|unsupported|exceeds|outside|unknown|malformed/.test(message)) return json({ detail: message }, 422);
   console.error(`TrustPay API error: ${error instanceof Error ? error.constructor.name : "UnknownError"}`);
   return json({ detail: "Internal server error" }, 500);
@@ -121,7 +121,7 @@ export async function handleApiRequest(request: Request, segments: string[], con
       context.demo.reset(); return json({ reset: true, warning: "Synthetic local demo only" });
     }
     if (path[0] === "invoice-intakes") {
-      if (context.mode === "sqlite") return json({ detail: "Invoice intake requires PostgreSQL mode" }, method === "GET" ? 404 : 403);
+      if (context.mode === "sqlite") return method === "GET" ? json({ detail: "Invoice intake not found" }, 404) : json({ detail: "Invoice intake requires PostgreSQL mode" }, 403);
       if (path.length === 1 && method === "POST") {
         const file = await uploadFile(request);
         return json(await context.intake.create(file.data, file.contentType, principal!, request.headers.get("Idempotency-Key")), 201);

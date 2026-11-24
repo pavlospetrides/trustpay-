@@ -2,7 +2,7 @@ import Database from "better-sqlite3";
 import { mkdirSync } from "node:fs";
 import { dirname } from "node:path";
 import type { AuditEvent, Invoice, Supplier, AssessmentInput } from "../../types";
-import { assessPayment } from "../fraud/risk";
+import { assessPayment, pythonFixed2 } from "../fraud/risk";
 import { demoInvoices, suppliers as fixtures } from "../jinius/demo";
 
 const TENANT = "asteria-demo";
@@ -88,7 +88,7 @@ export class DemoStore {
       const history = this.history(row.id);
       const amounts = history.map((item) => item.amount_cents).sort((a, b) => a - b);
       const median = amounts.length ? amounts.length % 2 ? amounts[Math.floor(amounts.length / 2)] : (amounts[amounts.length / 2 - 1] + amounts[amounts.length / 2]) / 2 : null;
-      return { id: row.id, name: row.name, short: row.short_name, payment_count: history.length, last4: mask(canonical(history.map((item) => item.creditor_account))), historical_median_eur: median === null ? null : Math.round(median) / 100 };
+      return { id: row.id, name: row.name, short: row.short_name, payment_count: history.length, last4: mask(canonical(history.map((item) => item.creditor_account))), historical_median_eur: median === null ? null : Number(pythonFixed2(median / 100)) };
     });
   }
   audit(): AuditEvent[] { return this.db.prepare("SELECT * FROM audit_events WHERE tenant_id=? ORDER BY id DESC LIMIT 200").all(TENANT) as AuditEvent[]; }
@@ -100,14 +100,16 @@ export class DemoStore {
       let title: string;
       let detail: string;
       if (action === "verify") {
-        if (row.risk_kind === "duplicate" || row.status === "approved" || row.status === "blocked" || row.verified_by) throw new Error("Invoice cannot be verified in its current state");
+        if (row.risk_kind === "duplicate" || row.status === "approved" || row.status === "blocked") throw new Error("Blocked or already approved payments cannot be verified");
+        if (row.verified_by) throw new Error("Independent verification has already been recorded");
         if (note.trim().length < 12) throw new Error("Independent verification must include an evidence note (12+ characters)");
         actor = "risk.analyst@demo.local";
         this.db.prepare("UPDATE invoices SET verified_by=?,verified_note=?,status='ready',updated_at=? WHERE id=?").run(actor, note.trim(), now(), id);
         title = "Independent callback recorded · simulated";
         detail = `${id} · analyst supplied evidence: ${note.trim()}`;
       } else if (action === "approve") {
-        if (row.status !== "ready" || row.risk_score >= 40 && !row.verified_by) throw new Error("Payment cannot be approved unless ready and independently verified");
+        if (row.status !== "ready") throw new Error("Payment cannot be approved unless ready for review");
+        if (row.risk_score >= 40 && !row.verified_by) throw new Error("Risky payment requires independent verification before approval");
         actor = "finance.manager@demo.local";
         if (row.verified_by === actor) throw new Error("Maker-checker separation failed");
         this.db.prepare("UPDATE invoices SET status='approved',approved_by=?,updated_at=? WHERE id=?").run(actor, now(), id);
