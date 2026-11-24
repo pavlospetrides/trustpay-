@@ -6,7 +6,7 @@ export const UNKNOWN_SUPPLIER = "Supplier is not known in this organization";
 // Python's json.dumps defaults (", " separator, ASCII-only escapes), so digests stored by the Python backend still match.
 const pythonJsonList = (values: (string | number)[]) =>
   `[${values.map((value) => typeof value === "number" ? String(value)
-    : JSON.stringify(value).replace(/[^\x20-\x7e]/g, (char) => `\\u${char.charCodeAt(0).toString(16).padStart(4, "0")}`)).join(", ")}]`;
+    : JSON.stringify(value ?? null).replace(/[^\x20-\x7e]/g, (char) => `\\u${char.charCodeAt(0).toString(16).padStart(4, "0")}`)).join(", ")}]`;
 
 /** Keyed, so the stored digest reveals nothing about the account; resolve uses it to detect a changed record. */
 export function recordDigest(fingerprintKey: Buffer, record: Pick<NormalizedInvoice, "id" | "revision" | "supplier_id" | "number" | "amount_cents" | "date" | "creditor_account">): string {
