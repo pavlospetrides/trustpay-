@@ -24,6 +24,8 @@ psql "$TRUSTPAY_DATABASE_URL" --single-transaction -v ON_ERROR_STOP=1 -f supabas
 
 Without `psql`, paste the file into the dashboard SQL editor wrapped in `begin;` … `commit;`. Check the result with `select count(*) from public.integration_imports;`, which should return 0. Until the file is applied, the app keeps working and the Integrations page says sync is unavailable.
 
+Applied to the hosted development project on 24 November 2026, in one transaction, after the identity and synthetic-data checks above.
+
 ## 2. Set server-only configuration
 
 Copy `.env.example` to `.env` and set `TRUSTPAY_BACKEND=postgres`, `TRUSTPAY_DATABASE_URL`, `SUPABASE_URL`, and `SUPABASE_PUBLISHABLE_KEY`. Supply a server-only `SUPABASE_SECRET_KEY` for private document storage. A legacy `SUPABASE_SERVICE_ROLE_KEY` is also accepted. Never add the secret key, PostgreSQL URL, or account keys to `frontend/.env.local` or any `NEXT_PUBLIC_` variable.

@@ -8,7 +8,7 @@ In Supabase mode, an owner or admin can run **Run sync** on the Integrations pag
 
 The demo fixtures now use the same synthetic IBANs as the Postgres seed, so the imported changed-IBAN invoice scores 75. An existing local SQLite demo database keeps the old `SYNTHETIC-CY-*` values until you press Demo reset. Live Jinius access is still pending ([#2](https://github.com/pavlospetrides/trustpay-/issues/2)).
 
-**Owner action:** apply the additive migration `20261124000100_integration_imports.sql` to the hosted development project by hand (see [Supabase setup](supabase-setup.md)). Never use `db push` there. Until then the Integrations page reports sync as unavailable. Verification evidence is on the PR for #18.
+The additive migration `20261124000100_integration_imports.sql` was **applied by hand to the hosted development project on 24 November 2026**. It ran in one transaction after checks confirmed the development environment, a matching project and only the two synthetic organizations. Afterwards the table existed with 0 rows, row-level security and the read-only policy were on, the three `sync_runs` columns were present, and existing invoice, payment and audit counts were unchanged. This adds no migration-history entry; never use `db push` there (see [Supabase setup](supabase-setup.md)). Still to do: a signed-in browser run of **Run sync** on hosted dev. Verification evidence is on the PR for #18.
 
 ## One-command startup (#13)
 
