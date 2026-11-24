@@ -1,5 +1,7 @@
 """Tenant-scoped PostgreSQL persistence. Never falls back to demo SQLite."""
 
+import hashlib
+import hmac
 import json
 import logging
 import os
@@ -193,13 +195,16 @@ class PostgresStore:
             return [self._present(con, row) for row in rows]
 
     def invoice(self, invoice_id: str, principal: Principal):
-        uuid_id, public_id = self._invoice_key(invoice_id)
         with self.connect() as con:
-            row = con.execute(self._INVOICE_QUERY + " and (i.id=%s or i.public_id=%s)",
-                              (principal.organization_id, uuid_id, public_id)).fetchone()
-            if row is None:
-                raise LookupError("Invoice not found")
-            return self._present(con, row)
+            return self._invoice_in(con, invoice_id, principal)
+
+    def _invoice_in(self, con, invoice_id: str, principal: Principal):
+        uuid_id, public_id = self._invoice_key(invoice_id)
+        row = con.execute(self._INVOICE_QUERY + " and (i.id=%s or i.public_id=%s)",
+                          (principal.organization_id, uuid_id, public_id)).fetchone()
+        if row is None:
+            raise LookupError("Invoice not found")
+        return self._present(con, row)
 
     def suppliers(self, principal: Principal):
         with self.connect() as con:
@@ -490,7 +495,7 @@ class PostgresStore:
             raise PermissionError("Role cannot resolve imported invoices")
         org = principal.organization_id
         with self.connect() as con:
-            row = con.execute("""select id,status,review_reason,source from public.integration_imports
+            row = con.execute("""select id,status,review_reason,source,evidence from public.integration_imports
                 where organization_id=%s and provider=%s and external_id=%s and revision=%s for update""",
                 (org, provider, external_id, revision)).fetchone()
             if row is None:
@@ -505,6 +510,11 @@ class PostgresStore:
             record = next((r for r in adapter.list_invoices() if r.id == external_id and r.revision == revision), None)
             if record is None:
                 raise ValueError("The provider no longer returns this invoice revision")
+            queued_digest = (row["evidence"] or {}).get("record_digest")
+            if queued_digest is None:
+                raise ValueError("This record was queued before change checks existed; it clears through a new revision")
+            if queued_digest != self._record_digest(record):
+                raise ValueError("The provider changed this record since it was queued; wait for a new revision")
             if (problem := self._import_problem(record)) is not None:
                 raise ValueError(problem)
             invoice_id = self._record_assessment(con, self._import_item(record), principal, supplier["id"],
@@ -516,14 +526,22 @@ class PostgresStore:
                         "Imported invoice resolved by human review",
                         f"Supplier {supplier_public_id} assigned · assessed as {item_id}",
                         target_type="integration_import")
-        return self.invoice(item_id, principal)
+            # Read back in the same transaction: a committed resolve never answers with an error.
+            return self._invoice_in(con, item_id, principal)
+
+    def _record_digest(self, record) -> str:
+        """Keyed, so the stored digest reveals nothing about the account; resolve uses it to detect a changed record."""
+        fields = [record.id, record.revision, record.supplier_id, record.number, record.amount_cents, record.date,
+                  record.creditor_account]
+        return hmac.new(self.protector.fingerprint_key, json.dumps(fields).encode(), hashlib.sha256).hexdigest()
 
     def _import_invoice(self, record, source: str, provider: str, connection_id: UUID, run_id: UUID,
                         principal: Principal) -> str:
         org = principal.organization_id
         evidence = {"supplier_reference": record.supplier_id, "invoice_number": record.number,
                     "amount_cents": record.amount_cents, "issue_date": record.date,
-                    "account_last4": (record.creditor_account or "")[-4:] or None}
+                    "account_last4": (record.creditor_account or "")[-4:] or None,
+                    "record_digest": self._record_digest(record)}
         with self.connect() as con:
             # The claim row makes re-syncs and concurrent syncs idempotent; it rolls back with any failure below.
             claim = con.execute("""insert into public.integration_imports

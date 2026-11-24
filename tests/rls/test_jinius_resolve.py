@@ -2,6 +2,7 @@
 
 import base64
 import os
+from concurrent.futures import ThreadPoolExecutor
 from dataclasses import replace
 from uuid import uuid4
 
@@ -109,6 +110,31 @@ def test_unknown_supplier_import_is_resolved_once_by_an_authorized_reviewer(monk
         assert con.execute("""select status from public.integration_imports where organization_id=%s
             and external_id='INV-2412'""", (org_a,)).fetchone()[0] == "needs_review"
         assert con.execute("select count(*) from public.invoices where organization_id=%s", (org_a,)).fetchone()[0] == 1
+
+    # Overlapping resolves of one row: exactly one assesses it, the other is refused after waiting for the lock.
+    reviewer = Principal(analyst, org_a, "analyst")
+
+    def attempt(_):
+        try:
+            return store.resolve_import("INV-2410", "1", "KASTRO-LOCAL", DemoJiniusAdapter(), reviewer)["id"]
+        except ValueError:
+            return "refused"
+    with ThreadPoolExecutor(2) as pool:
+        assert sorted(pool.map(attempt, range(2))) == ["JIN-INV-2410-r1", "refused"]
+
+    # The provider changed the record without a new revision: resolve refuses instead of assessing other data.
+    changed = replace(next(r for r in DemoJiniusAdapter().list_invoices() if r.id == "INV-2409"), amount_cents=1)
+    with pytest.raises(ValueError, match="changed"):
+        store.resolve_import("INV-2409", "1", "KASTRO-LOCAL", ListAdapter([changed]), reviewer)
+
+    # Rollback and retry: the failed INV-2412 attempt above wrote nothing, so a retry resolves it once.
+    assert store.resolve_import("INV-2412", "1", "KASTRO-LOCAL", DemoJiniusAdapter(), reviewer)["id"] == "JIN-INV-2412-r1"
+    with psycopg.connect(dsn) as con:
+        assert con.execute("select count(*) from public.invoices where organization_id=%s", (org_a,)).fetchone()[0] == 3
+        assert con.execute("select count(*) from public.risk_assessments where organization_id=%s",
+                           (org_a,)).fetchone()[0] == 3
+        assert con.execute("""select status from public.integration_imports where organization_id=%s
+            and external_id='INV-2409'""", (org_a,)).fetchone()[0] == "needs_review"
 
     actions = [e["action"] for e in client.get("/api/v1/audit", headers=headers("owner")).json()]
     assert "IMPORT_RESOLVED" in actions

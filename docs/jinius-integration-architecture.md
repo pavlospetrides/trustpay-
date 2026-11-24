@@ -30,9 +30,11 @@ Revisions may not contain `-`, so a public ID maps back to exactly one (external
 
 Each run is stored in `sync_runs` with its counts and a fixed safe error message, and is audited (`INTEGRATION_SYNC`, `IMPORT_NEEDS_REVIEW`, `ASSESSED`). `LiveJiniusAdapter` still raises `NotImplementedError`. **Unknown-supplier rows** can be resolved by an owner, admin or analyst (#20). They pick an existing supplier on the Integrations page, which calls `POST /api/v1/integrations/jinius/imports/{external_id}/{revision}/resolve`. The server then:
 
-1. re-reads that revision from the adapter, because the full IBAN is never stored with the import;
+1. re-reads that revision from the adapter, because the full IBAN is never stored with the import, and refuses if it no longer matches the keyed digest (HMAC with the IBAN fingerprint key) saved when the record was queued;
 2. assesses it once through the shared path, with the resolver recorded as maker;
 3. audits the action as `IMPORT_RESOLVED`.
+
+The invoice returned by resolve is read inside the same transaction, so a committed resolve never answers with an error. The page refreshes after every attempt.
 
 **Missing- or invalid-IBAN rows** stay unresolvable. They clear only through a corrected provider revision.
 

@@ -26,6 +26,7 @@ export default function Integrations() {
   return <>
     <PageHeading title="Integrations" description="Connection state reported by the FastAPI service. No browser secrets or connection controls are exposed."/>
     {feed.loading && !feed.data ? <Loading/> : feed.error && !feed.data ? <ErrorState message={feed.error} retry={feed.refresh}/> : <>
+      {feed.error ? <div className="notice danger" role="alert">Could not refresh integrations: {feed.error} <button className="button secondary" type="button" onClick={feed.refresh}>Retry</button></div> : null}
       <div className="integration-grid">
         <Panel className="integration-card"><div className="integration-icon"><PlugZap size={24}/></div><span className={`badge ${jinius?.live_connected ? "badge-ready" : "badge-hold"}`}>{jinius?.status === "mock" ? "Mock / disconnected" : jinius?.status || "Unknown"}</span><h2>Jinius</h2><p>Adapter: {jinius?.adapter}. Live connected: {jinius?.live_connected ? "Yes" : "No"}.</p>
           <div className="integration-detail"><strong>Data available</strong><span>{jinius?.source_label}: synthetic invoice records through the demo adapter. This is not the Jinius API.</span></div>
@@ -54,9 +55,10 @@ function ReviewRow({ item, onResolved }: { item: ImportReview; onResolved: () =>
   async function resolve() {
     if (!supplier || busy) return;
     setBusy(true); setError("");
-    try { await api.resolveImport(item.external_id, item.revision, supplier); await onResolved(); }
+    try { await api.resolveImport(item.external_id, item.revision, supplier); }
     catch (e) { setError(e instanceof Error ? e.message : "Could not resolve this import"); }
-    finally { setBusy(false); }
+    // Refresh either way: a request that failed in transit may still have resolved the row.
+    finally { setBusy(false); await onResolved(); }
   }
   const label = `${item.external_id} (rev ${item.revision})`;
   return <li>{label}{item.supplier_reference ? ` · provider supplier ${item.supplier_reference}` : ""}: {item.reason}
@@ -67,6 +69,7 @@ function ReviewRow({ item, onResolved }: { item: ImportReview; onResolved: () =>
       </select></label>
       <button className="button secondary" type="button" onClick={resolve} disabled={!supplier || busy}>{busy ? "Assessing…" : "Assess with this supplier"}</button>
     </div> : null}
+    {item.resolvable && suppliers.error ? <div className="notice danger" role="alert">Suppliers could not load: {suppliers.error} <button className="button secondary" type="button" onClick={suppliers.refresh}>Retry</button></div> : null}
     {error ? <div className="notice danger" role="alert">{error}</div> : null}
   </li>;
 }
