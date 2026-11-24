@@ -23,9 +23,16 @@ export interface RiskInput {
   previouslyPaidInvoices: Iterable<string>;
 }
 
-const normalizedAccount = (value: string) => value.toUpperCase().replace(/\s+/g, "");
-// Close to Python's str.casefold (ß matches ss); dotless ı is kept, as casefold keeps it.
-const casefold = (value: string) => [...value].map((char) => char === "ı" ? char : char.toUpperCase().toLowerCase()).join("");
+// Python's str.isspace() set: unlike JavaScript's \s it includes U+001C–U+001F and U+0085 and excludes U+FEFF.
+const PY_SPACE = "\\t\\n\\v\\f\\r\\x1c-\\x20\\x85\\xa0\\u1680\\u2000-\\u200a\\u2028\\u2029\\u202f\\u205f\\u3000";
+const PY_EDGES = new RegExp(`^[${PY_SPACE}]+|[${PY_SPACE}]+$`, "g"), PY_SPACES = new RegExp(`[${PY_SPACE}]+`, "g");
+const pyStrip = (value: string) => value.replace(PY_EDGES, "");
+const normalizedAccount = (value: string) => value.toUpperCase().replace(PY_SPACES, "");
+// Python's str.casefold, checked against every code point: upper-then-lower per character gives the same matches
+// (Cherokee folds the other way round but groups the same letters), except ẞ/ß, which casefold turns into "ss",
+// and Unicode 16 letters that Python 3.13 does not know.
+// Dotless ı stays as it is, as casefold keeps it.
+const casefold = (value: string) => [...value].map((char) => char === "ı" ? char : char.toUpperCase().toLowerCase()).join("").replace(/ß/g, "ss");
 
 /** Python's f"{x:.2f}": exact binary value, ties (x*8 odd) round half to even, where toFixed rounds up. */
 export function pythonFixed2(value: number): string {
@@ -54,14 +61,14 @@ function ratioOneDecimal(amount: number, typicalTwice: number): string {
 export function assessPayment(input: RiskInput): Assessment {
   const { invoiceNumber, currentAccount, amountCents } = input;
   if (!Number.isSafeInteger(amountCents) || amountCents <= 0) throw new Error("amount_cents must be positive");
-  if (!invoiceNumber.trim() || !currentAccount.trim()) throw new Error("invoice_number and current_account are required");
+  if (!pyStrip(invoiceNumber) || !pyStrip(currentAccount)) throw new Error("invoice_number and current_account are required");
 
-  const accounts = [...input.previousAccounts].filter((account) => account.trim()).map(normalizedAccount);
+  const accounts = [...input.previousAccounts].filter((account) => pyStrip(account)).map(normalizedAccount);
   const amounts = [...input.previousPaidAmountsCents].filter((amount) => amount > 0);
-  const paid = new Set([...input.previouslyPaidInvoices].map((value) => casefold(value.trim())));
+  const paid = new Set([...input.previouslyPaidInvoices].map((value) => casefold(pyStrip(value))));
   const signals: RiskSignal[] = [];
 
-  if (paid.has(casefold(invoiceNumber.trim()))) {
+  if (paid.has(casefold(pyStrip(invoiceNumber)))) {
     signals.push({ code: "DUPLICATE_PAID_INVOICE", weight: 100, explanation: "This supplier's invoice number matches a previously paid invoice. A second payment must be blocked.", severity: "critical" });
   }
   if (accounts.length) {

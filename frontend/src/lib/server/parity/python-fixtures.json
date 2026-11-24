@@ -1684,6 +1684,180 @@
     ]
    },
    "name": "error {'invoice_number': ' '}"
+  },
+  {
+   "input": {
+    "amount_cents": 100000,
+    "current_account": "GB70TRST00000000000001",
+    "invoice_number": "strasse-1",
+    "previous_accounts": [
+     "GB70TRST00000000000001",
+     "GB70TRST00000000000001",
+     "GB70TRST00000000000001",
+     "GB70TRST00000000000001"
+    ],
+    "previous_paid_amounts_cents": [
+     100000,
+     100000,
+     100000,
+     100000
+    ],
+    "previously_paid_invoices": [
+     "STRAẞE-1"
+    ]
+   },
+   "name": "capital sharp s matches ss",
+   "output": {
+    "kind": "duplicate",
+    "level": "critical",
+    "reason": "This supplier's invoice number matches a previously paid invoice. A second payment must be blocked.",
+    "recommended_status": "blocked",
+    "score": 100,
+    "signals": [
+     {
+      "code": "DUPLICATE_PAID_INVOICE",
+      "explanation": "This supplier's invoice number matches a previously paid invoice. A second payment must be blocked.",
+      "severity": "critical",
+      "weight": 100
+     }
+    ]
+   }
+  },
+  {
+   "input": {
+    "amount_cents": 100000,
+    "current_account": "GB70TRST00000000000001",
+    "invoice_number": "MAẞ-7",
+    "previous_accounts": [
+     "GB70TRST00000000000001",
+     "GB70TRST00000000000001",
+     "GB70TRST00000000000001",
+     "GB70TRST00000000000001"
+    ],
+    "previous_paid_amounts_cents": [
+     100000,
+     100000,
+     100000,
+     100000
+    ],
+    "previously_paid_invoices": [
+     "maß-7"
+    ]
+   },
+   "name": "capital sharp s matches sharp s",
+   "output": {
+    "kind": "duplicate",
+    "level": "critical",
+    "reason": "This supplier's invoice number matches a previously paid invoice. A second payment must be blocked.",
+    "recommended_status": "blocked",
+    "score": 100,
+    "signals": [
+     {
+      "code": "DUPLICATE_PAID_INVOICE",
+      "explanation": "This supplier's invoice number matches a previously paid invoice. A second payment must be blocked.",
+      "severity": "critical",
+      "weight": 100
+     }
+    ]
+   }
+  },
+  {
+   "input": {
+    "amount_cents": 100000,
+    "current_account": "GB70TRST00000000000001",
+    "invoice_number": "A-1\u001c",
+    "previous_accounts": [
+     "GB70TRST00000000000001",
+     "GB70TRST00000000000001",
+     "GB70TRST00000000000001",
+     "GB70TRST00000000000001"
+    ],
+    "previous_paid_amounts_cents": [
+     100000,
+     100000,
+     100000,
+     100000
+    ],
+    "previously_paid_invoices": [
+     "A-1"
+    ]
+   },
+   "name": "Python strips U+0085 and U+001C",
+   "output": {
+    "kind": "duplicate",
+    "level": "critical",
+    "reason": "This supplier's invoice number matches a previously paid invoice. A second payment must be blocked.",
+    "recommended_status": "blocked",
+    "score": 100,
+    "signals": [
+     {
+      "code": "DUPLICATE_PAID_INVOICE",
+      "explanation": "This supplier's invoice number matches a previously paid invoice. A second payment must be blocked.",
+      "severity": "critical",
+      "weight": 100
+     }
+    ]
+   }
+  },
+  {
+   "input": {
+    "amount_cents": 100000,
+    "current_account": "GB70TRST00000000000001",
+    "invoice_number": "﻿A-1",
+    "previous_accounts": [
+     "GB70TRST00000000000001",
+     "GB70TRST00000000000001",
+     "GB70TRST00000000000001",
+     "GB70TRST00000000000001"
+    ],
+    "previous_paid_amounts_cents": [
+     100000,
+     100000,
+     100000,
+     100000
+    ],
+    "previously_paid_invoices": [
+     "A-1"
+    ]
+   },
+   "name": "Python keeps a byte-order mark",
+   "output": {
+    "kind": "normal",
+    "level": "low",
+    "reason": "Account, invoice reference and amount are consistent with the available historical data.",
+    "recommended_status": "ready",
+    "score": 0,
+    "signals": []
+   }
+  },
+  {
+   "input": {
+    "amount_cents": 100000,
+    "current_account": "GB70TRST00000000000001",
+    "invoice_number": "A-9",
+    "previous_accounts": [
+     "GB70TRST00000000000001",
+     "GB70TRST00000000000001",
+     "GB70TRST00000000000001",
+     "GB70TRST00000000000001"
+    ],
+    "previous_paid_amounts_cents": [
+     100000,
+     100000,
+     100000,
+     100000
+    ],
+    "previously_paid_invoices": []
+   },
+   "name": "account U+0085 inside is removed",
+   "output": {
+    "kind": "normal",
+    "level": "low",
+    "reason": "Account, invoice reference and amount are consistent with the available historical data.",
+    "recommended_status": "ready",
+    "score": 0,
+    "signals": []
+   }
   }
  ]
 }
