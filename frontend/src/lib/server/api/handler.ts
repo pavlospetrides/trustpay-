@@ -9,6 +9,7 @@ import { readDocument, MAX_DOCUMENT_BYTES } from "../invoices/document";
 import { reviewedInvoiceSchema } from "../invoices/extraction";
 import { JiniusSync } from "../jinius/sync";
 import { authenticateRequest } from "../auth/request";
+import { StatusError } from "./status-error";
 
 export type ApiContext =
   | { mode: "sqlite"; demo: DemoStore }
@@ -22,10 +23,12 @@ const isoDate = z.string().refine((value) => /^\d{4}-\d{2}-\d{2}$/.test(value) &
 const assessmentInput = z.strictObject({ id: z.string().min(3).max(64).regex(/^[A-Za-z0-9_-]+$/), supplier_id: z.string().min(3).max(32), invoice_number: z.string().min(2).max(70), amount_cents: z.number().int().positive().max(100_000_000_000), creditor_account: z.string().min(4).max(64), invoice_date: isoDate });
 const reviewInput = z.strictObject({ fields: reviewedInvoiceSchema, supplier_id: z.string().nullable(), create_new_supplier: z.boolean() });
 const verifyInput = z.strictObject({ evidence_note: z.string().min(12).max(500) });
+const resolveInput = z.strictObject({ supplier_id: z.string().min(1).max(32) });
 const invoiceOutput = z.object({ id: z.string(), supplier_id: z.string(), amount_cents: z.number().int(), risk: z.number().int().min(0).max(100), iban: z.string().startsWith("••••"), status: z.enum(["ready", "needs_review", "blocked", "hold", "approved"]), signals: z.array(z.object({ code: z.string(), explanation: z.string() }).passthrough()) }).passthrough();
 const invoiceJson = (value: Invoice, status = 200) => json(invoiceOutput.parse(value), status);
 
 function errorResponse(error: unknown, mode: ApiContext["mode"]): Response {
+  if (error instanceof StatusError) return json({ detail: error.message }, error.status);
   if (error instanceof ZodError || error instanceof SyntaxError) return json({ detail: error instanceof ZodError ? error.issues.map((issue) => ({ msg: issue.message, loc: issue.path })) : "Malformed JSON" }, 422);
   const message = error instanceof Error ? error.message : "Request failed";
   const code = error instanceof Error && "code" in error ? String(error.code) : "";
@@ -34,12 +37,12 @@ function errorResponse(error: unknown, mode: ApiContext["mode"]): Response {
   if (/Authentication required|Invalid or expired access token/.test(message)) return json({ detail: message }, 401);
   if (/X-Organization-Id is required|Invalid organization ID/.test(message)) return json({ detail: message }, 400);
   if (/No organization membership|No membership in requested organization/.test(message)) return json({ detail: message }, 403);
-  if (/Authentication service unavailable|Database unavailable|Private storage|Private document|CA certificate|PostgreSQL mode requires/.test(message)) return json({ detail: message }, 503);
+  if (/Authentication service|Database unavailable|Private storage|Private invoice storage|Private document|CA certificate|PostgreSQL mode requires/.test(message)) return json({ detail: message }, 503);
   if (/limit reached|retry limit/.test(message)) return json({ detail: message }, 429);
   if (/not found|Unknown demo supplier|Supplier not found|Assessment not found/.test(message)) return json({ detail: message }, 404);
   if (/already exists|Idempotency key already used/.test(message)) return json({ detail: message }, 409);
-  if (/Role|cannot independently|Maker-checker|needs independent verification|requires independent verification|already been recorded|not ready|cannot be verified|cannot be placed|cannot be approved|unavailable in PostgreSQL mode|requires PostgreSQL mode/.test(message)) return json({ detail: message }, mode === "sqlite" ? 409 : 403);
-  if (/Invalid|valid|must|Only|Select|Review|cannot|could not be read|unsupported|exceeds|outside|unknown|malformed/.test(message)) return json({ detail: message }, 422);
+  if (/Role|Only organization owners|cannot independently|Maker-checker|needs independent verification|requires independent verification|already been recorded|not ready|cannot be verified|cannot be placed|cannot be approved|unavailable in PostgreSQL mode|requires PostgreSQL mode/.test(message)) return json({ detail: message }, mode === "sqlite" ? 409 : 403);
+  if (/Invalid|valid|must|Only|Select|Review|cannot|is required|are required|evidence reference|already been reviewed|Unknown assessment|could not be read|unsupported|exceeds|outside|unknown|malformed/.test(message)) return json({ detail: message }, 422);
   console.error(`TrustPay API error: ${error instanceof Error ? error.constructor.name : "UnknownError"}`);
   return json({ detail: "Internal server error" }, 500);
 }
@@ -116,6 +119,11 @@ export async function handleApiRequest(request: Request, segments: string[], con
     if (path.join("/") === "audit" && method === "GET") return json(context.mode === "sqlite" ? context.demo.audit() : await context.pg.audit(principal!));
     if (path.join("/") === "integrations" && method === "GET") return json(context.mode === "sqlite" ? { jinius: { status: "mock", adapter: "DemoJiniusAdapter", source_label: "Synthetic Jinius demo", live_connected: false, sync_available: false, next_step: "Request authorized sandbox documentation and scopes from organizers" }, bank_payment: { status: "disabled", payment_initiation: false } } : await context.jinius.integrations(principal!));
     if (path.join("/") === "integrations/jinius/sync" && method === "POST") return context.mode === "sqlite" ? json({ detail: "Integration sync requires PostgreSQL mode" }, 403) : json(await context.jinius.run(principal!));
+    if (path.length === 6 && path.slice(0, 3).join("/") === "integrations/jinius/imports" && path[5] === "resolve" && method === "POST") {
+      const supplierId = resolveInput.parse(await request.json()).supplier_id;
+      if (context.mode === "sqlite") return json({ detail: "Integration imports require PostgreSQL mode" }, 403);
+      return invoiceJson(await context.jinius.resolve(path[3], path[4], supplierId, principal!));
+    }
     if (path.join("/") === "demo/reset" && method === "POST") {
       if (context.mode === "postgres") return json({ detail: "Demo reset is unavailable in PostgreSQL mode" }, 403);
       context.demo.reset(); return json({ reset: true, warning: "Synthetic local demo only" });

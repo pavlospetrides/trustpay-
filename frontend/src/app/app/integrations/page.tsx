@@ -24,7 +24,7 @@ export default function Integrations() {
   }
   const run = jinius?.last_run;
   return <>
-    <PageHeading title="Integrations" description="Connection state reported by the the server service. No browser secrets or connection controls are exposed."/>
+    <PageHeading title="Integrations" description="Connection state reported by the server. No browser secrets or connection controls are exposed."/>
     {feed.loading && !feed.data ? <Loading/> : feed.error && !feed.data ? <ErrorState message={feed.error} retry={feed.refresh}/> : <>
       {feed.error ? <div className="notice danger" role="alert">Could not refresh integrations: {feed.error} <button className="button secondary" type="button" onClick={feed.refresh}>Retry</button></div> : null}
       <div className="integration-grid">

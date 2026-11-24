@@ -63,11 +63,13 @@ export class PgStore {
   }
 
   async invoice(id: string, principal: Principal): Promise<Invoice> {
-    return this.read(async (con) => {
-      const row = (await con.query(`${INVOICE_QUERY} and (i.id=$2::uuid or i.public_id=$3)`, [principal.organizationId, internalId(id), id])).rows[0];
-      if (!row) throw new Error("Invoice not found");
-      return this.present(con, row);
-    });
+    return this.read((con) => this.invoiceIn(con, id, principal));
+  }
+
+  async invoiceIn(con: QueryConnection, id: string, principal: Principal): Promise<Invoice> {
+    const row = (await con.query(`${INVOICE_QUERY} and (i.id=$2::uuid or i.public_id=$3)`, [principal.organizationId, internalId(id), id])).rows[0];
+    if (!row) throw new Error("Invoice not found");
+    return this.present(con, row);
   }
 
   async suppliers(principal: Principal): Promise<Supplier[]> {

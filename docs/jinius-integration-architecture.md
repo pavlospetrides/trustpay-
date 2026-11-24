@@ -1,6 +1,6 @@
 # Jinius integration boundary
 
-TrustPay currently has a synthetic `DemoJiniusAdapter` and a disabled `LiveJiniusAdapter` in [app/jinius.py](../app/jinius.py). No live Jinius request, payment instruction, or bank account verification is implemented.
+TrustPay currently has a synthetic `DemoJiniusAdapter` and a disabled `LiveJiniusAdapter` in [frontend/src/lib/server/jinius](../frontend/src/lib/server/jinius/). No live Jinius request, payment instruction, or bank account verification is implemented.
 
 ## What official sources establish
 
@@ -20,7 +20,7 @@ Steps 3–5 run today against `DemoJiniusAdapter` in Supabase mode. An owner or 
 
 - validates the provider reference, date, amount and IBAN;
 - resolves the supplier by its reference inside the caller's organization;
-- assesses the record through `PostgresStore._record_assessment`, the same write path used by uploads and manual assessments.
+- assesses the record through `PgStore.recordAssessment`, the same write path used by uploads and manual assessments.
 
 Imported invoices are labelled "Synthetic Jinius demo" (`external_source = jinius_demo_adapter`). Their public IDs have the form `JIN-<external id>-r<revision>`. The person who ran the sync is recorded as the maker, so the existing verify and approve gates apply unchanged.
 
@@ -28,7 +28,7 @@ Imported invoices are labelled "Synthetic Jinius demo" (`external_source = jiniu
 
 Revisions may not contain `-`, so a public ID maps back to exactly one (external id, revision) pair. Counts are saved after every record. The server log records only the run ID and the exception type, never the provider's error text. A run still marked running after 15 minutes is closed as failed when the next sync starts.
 
-Each run is stored in `sync_runs` with its counts and a fixed safe error message, and is audited (`INTEGRATION_SYNC`, `IMPORT_NEEDS_REVIEW`, `ASSESSED`). `LiveJiniusAdapter` still raises `NotImplementedError`. **Unknown-supplier rows** can be resolved by an owner, admin or analyst (#20). They pick an existing supplier on the Integrations page, which calls `POST /api/v1/integrations/jinius/imports/{external_id}/{revision}/resolve`. The server then:
+Each run is stored in `sync_runs` with its counts and a fixed safe error message, and is audited (`INTEGRATION_SYNC`, `IMPORT_NEEDS_REVIEW`, `ASSESSED`). `LiveJiniusAdapter` still throws on every call. `JiniusSync` takes its invoice feed as an `InvoiceSource` function, so a live adapter can replace `demoSource` without touching the import rules. **Unknown-supplier rows** can be resolved by an owner, admin or analyst (#20). They pick an existing supplier on the Integrations page, which calls `POST /api/v1/integrations/jinius/imports/{external_id}/{revision}/resolve`. The server then:
 
 1. re-reads that revision from the adapter, because the full IBAN is never stored with the import, and refuses if it no longer matches the keyed digest (HMAC with the IBAN fingerprint key) saved when the record was queued;
 2. assesses it once through the shared path, with the resolver recorded as maker;

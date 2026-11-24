@@ -4,7 +4,7 @@
 
 `TRUSTPAY_BACKEND=postgres` selects the tenant-aware PostgreSQL adapter. The API verifies a Supabase Auth access token with GoTrue on every protected request, resolves the user from `auth.users`, and checks membership in the requested active organization before querying with a privileged database connection. Every business query also includes `organization_id`; a client-supplied organization header is never sufficient on its own. PostgreSQL failures return an error and do not switch to SQLite. `TRUSTPAY_BACKEND=sqlite` remains the explicit local synthetic demo mode.
 
-The SQL source is in `supabase/migrations/`. No migration is run by the application. The pure policy engine in `app/risk.py` is unchanged. Its 0–100 result is a **review priority score**, not a calibrated fraud probability.
+The SQL source is in `supabase/migrations/`. No migration is run by the application. The pure policy engine in `frontend/src/lib/server/fraud/risk.ts` gives the same results as the former Python engine (pinned by golden tests). Its 0–100 result is a **review priority score**, not a calibrated fraud probability.
 
 ## Records
 

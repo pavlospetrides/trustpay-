@@ -31,6 +31,13 @@ describe("single-server synthetic API", () => {
       expect(db.invoices()).toHaveLength(4);
     } finally { db.close(); }
   });
+  it("refuses import resolution in the synthetic demo, as the Python backend did", async () => {
+    const db = new DemoStore(":memory:");
+    try {
+      const response = await handleApiRequest(request("v1/integrations/jinius/imports/INV-2411/1/resolve", "POST", { supplier_id: "SUP-003" }), ["v1", "integrations", "jinius", "imports", "INV-2411", "1", "resolve"], { mode: "sqlite", demo: db });
+      expect([response.status, (await response.json()).detail]).toEqual([403, "Integration imports require PostgreSQL mode"]);
+    } finally { db.close(); }
+  });
   it("denies a verified user without tenant membership", async () => {
     const context = { mode: "postgres", pg: { membershipRows: async () => [] }, verifyToken: async () => "11111111-1111-4111-8111-111111111111" } as unknown as ApiContext;
     const response = await handleApiRequest(new Request("http://localhost/api/v1/invoices", { headers: { Authorization: "Bearer synthetic-token" } }), ["v1", "invoices"], context);

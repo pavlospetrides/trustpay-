@@ -29,7 +29,7 @@ function decrypt(key: Buffer, encrypted: Buffer, aad?: Buffer): Buffer {
 }
 
 export class AccountProtector {
-  constructor(private readonly encryptionKey: Buffer, private readonly fingerprintKey: Buffer) {
+  constructor(private readonly encryptionKey: Buffer, readonly fingerprintKey: Buffer) {
     if (encryptionKey.length !== 32 || fingerprintKey.length < 32) throw new Error("Account encryption and fingerprint keys must be at least 32 bytes");
   }
 
