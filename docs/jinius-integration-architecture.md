@@ -26,6 +26,12 @@ Imported invoices are labelled "Synthetic Jinius demo" (`external_source = jiniu
 
 `integration_imports` holds one row per (organization, provider, external id, revision), so a re-sync skips records it has already seen. Records with an unknown supplier, a missing IBAN or an invalid IBAN never become invoices. They stay as `needs_review` rows with a reason and appear on the Integrations page.
 
-Each run is stored in `sync_runs` with its counts and a fixed safe error message, and is audited (`INTEGRATION_SYNC`, `IMPORT_NEEDS_REVIEW`, `ASSESSED`). `LiveJiniusAdapter` still raises `NotImplementedError`. Resolving a review row (mapping the supplier, then assessing it) is not built yet; a corrected record arrives as a new provider revision.
+Each run is stored in `sync_runs` with its counts and a fixed safe error message, and is audited (`INTEGRATION_SYNC`, `IMPORT_NEEDS_REVIEW`, `ASSESSED`). `LiveJiniusAdapter` still raises `NotImplementedError`. **Unknown-supplier rows** can be resolved by an owner, admin or analyst (#20). They pick an existing supplier on the Integrations page, which calls `POST /api/v1/integrations/jinius/imports/{external_id}/{revision}/resolve`. The server then:
+
+1. re-reads that revision from the adapter, because the full IBAN is never stored with the import;
+2. assesses it once through the shared path, with the resolver recorded as maker;
+3. audits the action as `IMPORT_RESOLVED`.
+
+**Missing- or invalid-IBAN rows** stay unresolvable. They clear only through a corrected provider revision.
 
 The Open Day questions and proof checklist are in [JINIUS_OPEN_DAY.md](JINIUS_OPEN_DAY.md). Before implementing `LiveJiniusAdapter`, the team needs Jinius's actual sandbox specification and permission to use it; no endpoint, credential format, payload, or bank capability should be inferred from the Marketplace article.

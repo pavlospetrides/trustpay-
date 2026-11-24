@@ -29,6 +29,9 @@ class AssessmentInput(BaseModel):
     creditor_account: str = Field(min_length=4, max_length=64)
     invoice_date: date
 
+class ImportResolutionInput(BaseModel):
+    supplier_id: str = Field(min_length=1, max_length=32)
+
 class VerificationInput(BaseModel):
     evidence_note: str = Field(min_length=12, max_length=500)
 
@@ -270,6 +273,17 @@ def create_app(database_path: str | None = None) -> FastAPI:
         # LiveJiniusAdapter stays disabled until Jinius supplies an API contract and sandbox access (#2).
         try: return store.sync_invoices(DemoJiniusAdapter(), user)
         except PermissionError as e: raise HTTPException(403, str(e)) from e
+
+    @app.post("/api/v1/integrations/jinius/imports/{external_id}/{revision}/resolve")
+    def resolve_jinius_import(external_id: str, revision: str, payload: ImportResolutionInput,
+                              user: Principal | None = Depends(principal)):
+        if mode != "postgres":
+            raise HTTPException(403, "Integration imports require PostgreSQL mode")
+        try: return store.resolve_import(external_id, revision, payload.supplier_id, DemoJiniusAdapter(), user)
+        except PermissionError as e: raise HTTPException(403, str(e)) from e
+        except LookupError as e: raise HTTPException(404, str(e)) from e
+        except ValueError as e: raise HTTPException(422, str(e)) from e
+        except FileExistsError as e: raise HTTPException(409, str(e)) from e
 
     @app.post("/api/v1/invoices/assess", status_code=201)
     def assess(payload: AssessmentInput, user: Principal | None = Depends(principal)):
