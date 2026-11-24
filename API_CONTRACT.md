@@ -1,4 +1,4 @@
-# Existing TrustPay MVP FastAPI Contract (reference for Codex)
+# TrustPay API contract (historical FastAPI baseline; current routes are in Next.js)
 
 Source of truth: `app/main.py` and `app/database.py` in the actual existing repo.
 
@@ -9,7 +9,7 @@ PostgreSQL mode also uses `app/postgres_store.py`. Protected endpoints require `
 | GET | `/api/health` | synthetic-local-demo, no bank transfers |
 | GET | `/api/v1/invoices` | invoices with masked accounts, risk, signals, workflow |
 | GET | `/api/v1/invoices/{id}` | invoice detail |
-| POST | `/api/v1/invoices/assess` | creates assessment using the same Python risk engine |
+| POST | `/api/v1/invoices/assess` | creates assessment using the same deterministic TypeScript risk engine |
 | POST | `/api/v1/invoices/{id}/verify` | requires 12+ chars evidence note; simulated verification |
 | POST | `/api/v1/invoices/{id}/approve` | server-controlled simulated internal approval |
 | POST | `/api/v1/invoices/{id}/hold` | hold, if status permits |

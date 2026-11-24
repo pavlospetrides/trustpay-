@@ -23,7 +23,7 @@ export default function Integrations() {
   }
   const run = jinius?.last_run;
   return <>
-    <PageHeading title="Integrations" description="Connection state reported by the FastAPI service. No browser secrets or connection controls are exposed."/>
+    <PageHeading title="Integrations" description="Connection state reported by the the server service. No browser secrets or connection controls are exposed."/>
     {feed.loading && !feed.data ? <Loading/> : feed.error && !feed.data ? <ErrorState message={feed.error} retry={feed.refresh}/> : <>
       <div className="integration-grid">
         <Panel className="integration-card"><div className="integration-icon"><PlugZap size={24}/></div><span className={`badge ${jinius?.live_connected ? "badge-ready" : "badge-hold"}`}>{jinius?.status === "mock" ? "Mock / disconnected" : jinius?.status || "Unknown"}</span><h2>Jinius</h2><p>Adapter: {jinius?.adapter}. Live connected: {jinius?.live_connected ? "Yes" : "No"}.</p>
@@ -41,7 +41,7 @@ export default function Integrations() {
           <div className="integration-detail"><strong>Next step</strong><span>{jinius?.next_step}</span></div></Panel>
         <Panel className="integration-card"><div className="integration-icon"><ShieldOff size={24}/></div><span className={`badge ${payment?.payment_initiation ? "badge-ready" : "badge-blocked"}`}>{payment?.status}</span><h2>Bank payment</h2><p>Payment initiation: {payment?.payment_initiation ? "Enabled" : "Disabled"}. This demo has no transfer endpoint.</p><div className="integration-detail"><strong>Current state</strong><span>Internal decisions only; no bank confirmation.</span></div></Panel>
       </div>
-      <Panel className="flow-panel"><h2>Data flow</h2><div className="integration-flow"><span><Database size={19}/> {jinius?.source_label ?? "Synthetic records"}</span><ArrowRight size={18}/><span><PlugZap size={19}/> FastAPI risk rules</span><ArrowRight size={18}/><span>Human maker-checker review</span><ArrowRight size={18}/><span>No payment sent</span></div></Panel>
+      <Panel className="flow-panel"><h2>Data flow</h2><div className="integration-flow"><span><Database size={19}/> {jinius?.source_label ?? "Synthetic records"}</span><ArrowRight size={18}/><span><PlugZap size={19}/> the server risk rules</span><ArrowRight size={18}/><span>Human maker-checker review</span><ArrowRight size={18}/><span>No payment sent</span></div></Panel>
     </>}
   </>;
 }

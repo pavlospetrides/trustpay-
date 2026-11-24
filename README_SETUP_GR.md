@@ -1,48 +1,13 @@
-# TrustPay AI — Codex Frontend Kit
+﻿# TrustPay AI — σύντομη εκκίνηση
 
-This kit contains the two exact user-provided 21.dev reference texts and a custom Codex implementation brief tailored to the existing TrustPay Python/FastAPI MVP.
-
-## Windows setup — βήμα βήμα
-
-1. Κράτησε backup του υπάρχοντος project `trustpay-ai-mvp` (ή βάλε το σε Git). ΜΗΝ διαγράψεις τον Python φάκελο.
-2. Κάνε extract **τα περιεχόμενα** του kit ZIP μέσα στο υπάρχον `trustpay-ai-mvp` folder, δίπλα στο `app/`, `web/`, `tests/`, `README.md`. Μετά πρέπει να υπάρχουν:
-
-```
-trustpay-ai-mvp/
-  app/
-  web/
-  tests/
-  CODEX_FRONTEND_MASTER_PROMPT.md
-  README_SETUP_GR.md
-  design-references/
-    21dev-glassy-dashboard.txt
-    21dev-liquid-glass-checkout.txt
-```
-
-3. Άνοιξε τον ίδιο φάκελο στο VS Code ή στο Codex workspace. Στείλε στο Codex την εντολή:
-
-> Read and implement `CODEX_FRONTEND_MASTER_PROMPT.md` in this project. Both source files are inside `design-references/`. Inspect the current FastAPI backend first. Implement the frontend and run the checks; do not stop at planning.
-
-4. Το Codex θα δημιουργήσει το `frontend/` και θα σου δώσει τις ακριβείς εντολές εκκίνησης.
-
-## Εκκίνηση (μία εντολή)
+Το TrustPay τρέχει εξ ολοκλήρου με Node.js και TypeScript. Χρειάζεται Node.js 24, χωρίς Python ή δεύτερο backend.
 
 ```powershell
 cd frontend
-npm install
+npm ci
 npm run dev
 ```
 
-Το `npm run dev` δημιουργεί το `.venv`, εγκαθιστά το `requirements.txt` την πρώτη φορά και ξεκινά FastAPI και Next.js μαζί. Το Ctrl+C σταματά και τα δύο.
+Άνοιξε το http://127.0.0.1:3000. Το τοπικό demo χρησιμοποιεί μόνο συνθετικά δεδομένα SQLite. Το ίδιο Next.js process εξυπηρετεί και το `/api/health` και τα `/api/v1/*` endpoints.
 
-**URL:** http://localhost:3000 (frontend), http://127.0.0.1:8000/docs (backend API documentation).
-
-Χρειάζεσαι εγκατεστημένο Node.js LTS και Python 3.11+. Αν δεν λειτουργεί το `python` command, μπορείς να εκτελέσεις τον πλήρη Python path που εγκατέστησες, ή να διορθώσεις το PATH.
-
-## Product rules
-
-- Απαγορεύεται να εμφανίζεται ότι στάλθηκαν πραγματικά χρήματα.
-- Τα raw credit-card / CVC πεδία από το 21.dev Liquid Checkout **δεν ανήκουν** στο προϊόν και πρέπει να αφαιρεθούν.
-- Το frontend χρησιμοποιεί τα πραγματικά local FastAPI endpoints, όχι demo values ως πηγή αλήθειας.
-- Καμία νέα Jinius API endpoint URL δεν πρέπει να εφευρεθεί.
-- Μην εκθέσεις τον υπάρχοντα μη-authenticated demo server σε public internet.
+Για το Supabase development mode, συμπλήρωσε το `frontend/.env.local` από το `frontend/.env.local.example` και ακολούθησε το [Supabase setup](docs/supabase-setup.md). Μην ανεβάζεις κωδικούς στο Git. Πραγματικές πληρωμές και live Jinius κλήσεις δεν υποστηρίζονται.
