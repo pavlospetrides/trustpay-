@@ -94,3 +94,8 @@ def test_jinius_sync_requires_postgres_mode(tmp_path):
     c=client(tmp_path)
     assert c.post('/api/v1/integrations/jinius/sync').status_code==403
     assert c.get('/api/v1/integrations').json()['jinius']['sync_available'] is False
+
+
+def test_jinius_import_resolve_requires_postgres_mode(tmp_path):
+    c=client(tmp_path)
+    assert c.post('/api/v1/integrations/jinius/imports/INV-2411/1/resolve', json={'supplier_id':'SUP-003'}).status_code==403

@@ -4,6 +4,21 @@ Updated 24 November 2026 for automatic Jinius sync against the synthetic adapter
 
 ## Automatic Jinius sync, synthetic adapter (#18)
 
+Resolving unknown-supplier review rows is in progress in [#20](https://github.com/pavlospetrides/trustpay-/issues/20). That branch is stacked on #19.
+
+An independent Codex review of #19 and #21 (24 Nov) led to these fixes:
+- unambiguous import IDs (revisions may not contain `-`);
+- no provider error text in server logs;
+- sync counts saved per record, and stale "running" runs closed;
+- resolve refuses a record that changed since it was queued;
+- clearer error and retry states on the Integrations page.
+
+Two findings wait for the owner:
+- whether the person who ran the sync should also be barred from verifying a resolved invoice (needs a schema change);
+- a separate issue for country-specific IBAN length checks (pre-existing on main, also affects uploads).
+
+Review rows queued before this change cannot be resolved; they clear through a new provider revision.
+
 In Supabase mode, an owner or admin can run **Run sync** on the Integrations page (`POST /api/v1/integrations/jinius/sync`). Each `DemoJiniusAdapter` invoice is then assessed once through the same deterministic path as uploads and enters the normal maker-checker queue, labelled "Synthetic Jinius demo". Records with an unknown supplier or a missing or invalid IBAN go to human review instead. Runs, counts and safe errors are stored in `sync_runs` and the audit log.
 
 The demo fixtures now use the same synthetic IBANs as the Postgres seed, so the imported changed-IBAN invoice scores 75. An existing local SQLite demo database keeps the old `SYNTHETIC-CY-*` values until you press Demo reset. Live Jinius access is still pending ([#2](https://github.com/pavlospetrides/trustpay-/issues/2)).

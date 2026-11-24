@@ -1,5 +1,7 @@
 """Tenant-scoped PostgreSQL persistence. Never falls back to demo SQLite."""
 
+import hashlib
+import hmac
 import json
 import logging
 import os
@@ -24,6 +26,7 @@ logger = logging.getLogger(__name__)
 SOURCE_LABELS = {"synthetic_seed": "Synthetic development seed", "uploaded": "Uploaded invoice",
                  "jinius_demo_adapter": "Synthetic Jinius demo"}
 _PROVIDER_REFERENCE = re.compile(r"[A-Za-z0-9._-]{1,64}")
+UNKNOWN_SUPPLIER = "Supplier is not known in this organization"
 # No "-" in revisions, so JIN-<id>-r<revision> splits at its last "-" and two (id, revision) pairs never collide.
 _PROVIDER_REVISION = re.compile(r"[A-Za-z0-9._]{1,64}")
 SYNC_STOPPED = "Sync stopped before finishing. Imported records are kept and running the sync again is safe."
@@ -192,13 +195,16 @@ class PostgresStore:
             return [self._present(con, row) for row in rows]
 
     def invoice(self, invoice_id: str, principal: Principal):
-        uuid_id, public_id = self._invoice_key(invoice_id)
         with self.connect() as con:
-            row = con.execute(self._INVOICE_QUERY + " and (i.id=%s or i.public_id=%s)",
-                              (principal.organization_id, uuid_id, public_id)).fetchone()
-            if row is None:
-                raise LookupError("Invoice not found")
-            return self._present(con, row)
+            return self._invoice_in(con, invoice_id, principal)
+
+    def _invoice_in(self, con, invoice_id: str, principal: Principal):
+        uuid_id, public_id = self._invoice_key(invoice_id)
+        row = con.execute(self._INVOICE_QUERY + " and (i.id=%s or i.public_id=%s)",
+                          (principal.organization_id, uuid_id, public_id)).fetchone()
+        if row is None:
+            raise LookupError("Invoice not found")
+        return self._present(con, row)
 
     def suppliers(self, principal: Principal):
         with self.connect() as con:
@@ -384,8 +390,8 @@ class PostgresStore:
                 imported = con.execute("""select count(*) filter (where status='assessed') as assessed,
                     count(*) filter (where status='needs_review') as needs_review from public.integration_imports
                     where organization_id=%s and provider='jinius'""", (org,)).fetchone()
-                review = con.execute("""select external_id,revision,review_reason,created_at
-                    from public.integration_imports
+                review = con.execute("""select external_id,revision,review_reason,created_at,
+                    evidence->>'supplier_reference' as supplier_reference from public.integration_imports
                     where organization_id=%s and provider='jinius' and status='needs_review'
                     order by created_at desc, external_id limit 50""", (org,)).fetchall()
         except (psycopg.errors.UndefinedTable, psycopg.errors.UndefinedColumn):
@@ -399,7 +405,9 @@ class PostgresStore:
                 last_success_at=last_success["at"].isoformat() if last_success["at"] else None,
                 imported_count=imported["assessed"], needs_review_count=imported["needs_review"],
                 needs_review=[{"external_id": r["external_id"], "revision": r["revision"],
-                               "reason": r["review_reason"], "created_at": r["created_at"].isoformat()}
+                               "reason": r["review_reason"], "supplier_reference": r["supplier_reference"],
+                               "resolvable": r["review_reason"] == UNKNOWN_SUPPLIER,
+                               "created_at": r["created_at"].isoformat()}
                               for r in review])
         return {"jinius": jinius, "bank_payment": {"status": "disabled", "payment_initiation": False}}
 
@@ -474,12 +482,66 @@ class PostgresStore:
             return "Payment account is not a valid IBAN"
         return None
 
+    @staticmethod
+    def _import_item(record) -> dict:
+        return {"id": f"JIN-{record.id}-r{record.revision}", "external_invoice_id": record.id,
+                "invoice_number": record.number, "amount_cents": record.amount_cents,
+                "creditor_account": record.creditor_account, "invoice_date": record.date}
+
+    def resolve_import(self, external_id: str, revision: str, supplier_public_id: str,
+                       adapter: InvoiceSource, principal: Principal, provider: str = "jinius") -> dict:
+        """Human review: assign an existing supplier to an unknown-supplier import, then assess it once."""
+        if principal.role not in {"owner", "admin", "analyst"}:
+            raise PermissionError("Role cannot resolve imported invoices")
+        org = principal.organization_id
+        with self.connect() as con:
+            row = con.execute("""select id,status,review_reason,source,evidence from public.integration_imports
+                where organization_id=%s and provider=%s and external_id=%s and revision=%s for update""",
+                (org, provider, external_id, revision)).fetchone()
+            if row is None:
+                raise LookupError("Imported invoice not found")
+            if row["status"] != "needs_review" or row["review_reason"] != UNKNOWN_SUPPLIER:
+                raise ValueError("Only imports waiting for an unknown supplier can be resolved here")
+            supplier = con.execute("""select id from public.suppliers where organization_id=%s and public_id=%s""",
+                                   (org, supplier_public_id)).fetchone()
+            if supplier is None:
+                raise LookupError("Supplier not found")
+            # The full IBAN is never stored with the import, so the provider stays the source of truth.
+            record = next((r for r in adapter.list_invoices() if r.id == external_id and r.revision == revision), None)
+            if record is None:
+                raise ValueError("The provider no longer returns this invoice revision")
+            queued_digest = (row["evidence"] or {}).get("record_digest")
+            if queued_digest is None:
+                raise ValueError("This record was queued before change checks existed; it clears through a new revision")
+            if queued_digest != self._record_digest(record):
+                raise ValueError("The provider changed this record since it was queued; wait for a new revision")
+            if (problem := self._import_problem(record)) is not None:
+                raise ValueError(problem)
+            invoice_id = self._record_assessment(con, self._import_item(record), principal, supplier["id"],
+                                                 row["source"])
+            con.execute("""update public.integration_imports set status='assessed',invoice_id=%s,review_reason=null,
+                updated_at=now() where organization_id=%s and id=%s""", (invoice_id, org, row["id"]))
+            item_id = self._import_item(record)["id"]
+            self._audit(con, principal, f"{external_id}@{revision}", "IMPORT_RESOLVED",
+                        "Imported invoice resolved by human review",
+                        f"Supplier {supplier_public_id} assigned · assessed as {item_id}",
+                        target_type="integration_import")
+            # Read back in the same transaction: a committed resolve never answers with an error.
+            return self._invoice_in(con, item_id, principal)
+
+    def _record_digest(self, record) -> str:
+        """Keyed, so the stored digest reveals nothing about the account; resolve uses it to detect a changed record."""
+        fields = [record.id, record.revision, record.supplier_id, record.number, record.amount_cents, record.date,
+                  record.creditor_account]
+        return hmac.new(self.protector.fingerprint_key, json.dumps(fields).encode(), hashlib.sha256).hexdigest()
+
     def _import_invoice(self, record, source: str, provider: str, connection_id: UUID, run_id: UUID,
                         principal: Principal) -> str:
         org = principal.organization_id
         evidence = {"supplier_reference": record.supplier_id, "invoice_number": record.number,
                     "amount_cents": record.amount_cents, "issue_date": record.date,
-                    "account_last4": (record.creditor_account or "")[-4:] or None}
+                    "account_last4": (record.creditor_account or "")[-4:] or None,
+                    "record_digest": self._record_digest(record)}
         with self.connect() as con:
             # The claim row makes re-syncs and concurrent syncs idempotent; it rolls back with any failure below.
             claim = con.execute("""insert into public.integration_imports
@@ -496,14 +558,12 @@ class PostgresStore:
                 supplier = con.execute("""select id from public.suppliers where organization_id=%s and public_id=%s""",
                                        (org, record.supplier_id)).fetchone()
                 if supplier is None:
-                    reason = "Supplier is not known in this organization"
+                    reason = UNKNOWN_SUPPLIER
             invoice_id = None
             if reason is None:
-                item = {"id": f"JIN-{record.id}-r{record.revision}", "external_invoice_id": record.id,
-                        "invoice_number": record.number, "amount_cents": record.amount_cents,
-                        "creditor_account": record.creditor_account, "invoice_date": record.date}
                 try:
-                    invoice_id = self._record_assessment(con, item, principal, supplier["id"], source)
+                    invoice_id = self._record_assessment(con, self._import_item(record), principal,
+                                                         supplier["id"], source)
                 except FileExistsError:
                     reason = "An invoice with this provider reference already exists"
             if invoice_id:
