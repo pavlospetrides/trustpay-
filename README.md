@@ -21,7 +21,7 @@ The [hackathon demo runbook](docs/hackathon-demo-runbook.md) records the verifie
 
 ## Start the demo (one command, macOS / Windows / Linux)
 
-Prerequisites: Python 3.11+ (Windows: the python.org installer with the `py` launcher) and Node.js 20+. Optional: copy `.env.example` to `.env` for Supabase mode (see below); without it the local SQLite demo runs.
+Prerequisites: Python 3.11+ (Windows: the python.org installer with the `py` launcher) and Node.js 20.19+ or 22.12+ (required by the locked Next.js and Vitest). Optional: copy `.env.example` to `.env` for Supabase mode (see below); without it the local SQLite demo runs.
 
 ```bash
 cd frontend
@@ -29,7 +29,7 @@ npm install
 npm run dev
 ```
 
-`npm run dev` creates `.venv` in the repository root and installs `requirements.txt` on first run (again only when that file changes). It then starts FastAPI on 127.0.0.1:8000 (or 8001 if 8000 is taken), waits for `/api/health`, and starts Next.js with the `/api/*` proxy pointed at that port. Open **http://127.0.0.1:3000**; API docs are at `http://127.0.0.1:8000/docs`. Startup errors (missing Python, pip failure, bad `.env`, database unavailable, both ports busy) stop both processes with a `[trustpay] ERROR:` line. **Ctrl+C stops both.** `npm run dev:web` starts only Next.js if you run FastAPI yourself.
+`npm run dev` creates `.venv` in the repository root and installs `requirements.txt` on first run (again only when that file changes). It then starts FastAPI on 127.0.0.1:8000 (or 8001 if 8000 is taken), waits for `/api/health`, and starts Next.js with the `/api/*` proxy pointed at that port. Open the URL Next.js prints (normally **http://127.0.0.1:3000**); API docs are at `/docs` on that same address. Startup errors (missing Python, pip failure, bad `.env`, database unavailable, both ports busy) stop both processes with a `[trustpay] ERROR:` line. **Ctrl+C stops both.** `npm run dev:web` starts only Next.js if you run FastAPI yourself.
 
 See [frontend/README.md](frontend/README.md) for checks and troubleshooting. The original `web/` interface remains available at the FastAPI port for rollback. This is an unauthenticated synthetic local demo; never deploy it publicly.
 

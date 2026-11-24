@@ -67,7 +67,7 @@ function provisionPython() {
   if (!existsSync(stamp) || readFileSync(stamp, "utf8").trim() !== wanted) {
     log("Installing Python packages from requirements.txt ...");
     if (!run(python, ["-m", "pip", "install", "--disable-pip-version-check", "-r", requirements]))
-      fail("pip install failed. Read the pip output above, fix it, then rerun npm run dev.");
+      fail("pip install failed. Read the pip output above and fix it; if .venv is damaged, delete it. Then rerun npm run dev.");
     writeFileSync(stamp, `${wanted}\n`);
   }
   return python;
@@ -133,7 +133,7 @@ async function main() {
   log(`Starting FastAPI on ${origin} ...`);
   const api = start("FastAPI", python, ["-m", "uvicorn", "app.main:app", "--host", "127.0.0.1", "--port", String(port)], { cwd: ROOT });
   const health = await waitForHealth(`${origin}/api/health`, api);
-  if (!health) return; // the exit handler already reported the failure
+  if (!health || stopping) return; // failure already reported, or Ctrl+C arrived during the wait
   log(`FastAPI healthy: mode=${health.mode}, payment_initiation=${health.payment_initiation}`);
 
   const { loadEnvConfig } = createRequire(import.meta.url)("@next/env");
@@ -146,7 +146,8 @@ async function main() {
     cwd: FRONTEND,
     env: { ...process.env, TRUSTPAY_API_ORIGIN: origin },
   });
-  log(`Open http://127.0.0.1:3000 (API ${origin}, docs ${origin}/docs). Press Ctrl+C to stop both.`);
+  log(`API ${origin} (docs ${origin}/docs). Open the Local URL Next.js prints below (normally http://127.0.0.1:3000). Ctrl+C stops both.`);
 }
 
-if (process.argv[1] && path.resolve(process.argv[1]) === fileURLToPath(import.meta.url)) main();
+if (process.argv[1] && path.resolve(process.argv[1]) === fileURLToPath(import.meta.url))
+  main().catch((error) => fail(`Launcher failed: ${error?.message ?? error}`)); // never leave FastAPI running
