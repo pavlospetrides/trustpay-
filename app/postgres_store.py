@@ -24,6 +24,11 @@ logger = logging.getLogger(__name__)
 SOURCE_LABELS = {"synthetic_seed": "Synthetic development seed", "uploaded": "Uploaded invoice",
                  "jinius_demo_adapter": "Synthetic Jinius demo"}
 _PROVIDER_REFERENCE = re.compile(r"[A-Za-z0-9._-]{1,64}")
+# No "-" in revisions, so JIN-<id>-r<revision> splits at its last "-" and two (id, revision) pairs never collide.
+_PROVIDER_REVISION = re.compile(r"[A-Za-z0-9._]{1,64}")
+SYNC_STOPPED = "Sync stopped before finishing. Imported records are kept and running the sync again is safe."
+_RUN_COUNTS = """update public.sync_runs set records_seen=%s,records_created=%s,records_needs_review=%s,
+    records_skipped=%s where organization_id=%s and id=%s"""
 
 
 @dataclass(frozen=True)
@@ -419,25 +424,31 @@ class PostgresStore:
             connection = con.execute("""insert into public.integration_connections(organization_id,provider,configuration)
                 values (%s,%s,%s) on conflict (organization_id,provider) do update set updated_at=now() returning id""",
                 (org, provider, json.dumps({"adapter": type(adapter).__name__}))).fetchone()
+            # A run whose process died never reached its final write; close it so it does not show "Running" forever.
+            con.execute("""update public.sync_runs set status='failed',finished_at=now(),safe_error=%s
+                where organization_id=%s and connection_id=%s and status='running'
+                and started_at < now() - interval '15 minutes'""", (SYNC_STOPPED, org, connection["id"]))
             run = con.execute("""insert into public.sync_runs(organization_id,connection_id,status)
                 values (%s,%s,'running') returning id""", (org, connection["id"])).fetchone()
         counts = Counter()
+        progress = lambda: (counts["seen"], counts["assessed"], counts["needs_review"], counts["skipped"], org, run["id"])
         safe_error = None
         try:
             for record in adapter.list_invoices():
                 counts["seen"] += 1
                 counts[self._import_invoice(record, getattr(adapter, "source", provider), provider,
                                             connection["id"], run["id"], principal)] += 1
-        except Exception:  # the provider or one record failed: keep what committed, report a safe message only
-            logger.exception("Integration sync %s failed", run["id"])
-            safe_error = "Sync stopped before finishing. Imported records are kept and running the sync again is safe."
+                with self.connect() as con:  # counts match what committed even if the final write below fails
+                    con.execute(_RUN_COUNTS, progress())
+        except Exception as exc:  # the provider or one record failed: keep what committed, report a safe message only
+            # The exception text can carry provider payload (account numbers), so log only its type.
+            logger.error("Integration sync %s failed (%s)", run["id"], type(exc).__name__)
+            safe_error = SYNC_STOPPED
         status = "failed" if safe_error else "success"
         with self.connect() as con:
-            row = con.execute("""update public.sync_runs set status=%s,finished_at=now(),records_seen=%s,
-                records_created=%s,records_needs_review=%s,records_skipped=%s,safe_error=%s
-                where organization_id=%s and id=%s returning *""",
-                (status, counts["seen"], counts["assessed"], counts["needs_review"], counts["skipped"],
-                 safe_error, org, run["id"])).fetchone()
+            con.execute(_RUN_COUNTS, progress())
+            row = con.execute("""update public.sync_runs set status=%s,finished_at=now(),safe_error=%s
+                where organization_id=%s and id=%s returning *""", (status, safe_error, org, run["id"])).fetchone()
             self._audit(con, principal, str(run["id"]), "INTEGRATION_SYNC",
                         "Jinius sync failed" if safe_error else "Jinius sync completed",
                         f"{SOURCE_LABELS.get(getattr(adapter, 'source', ''), provider)} · {counts['seen']} seen · "
@@ -447,7 +458,7 @@ class PostgresStore:
 
     @staticmethod
     def _import_problem(record) -> str | None:
-        if not (_PROVIDER_REFERENCE.fullmatch(record.id or "") and _PROVIDER_REFERENCE.fullmatch(record.revision or "")):
+        if not (_PROVIDER_REFERENCE.fullmatch(record.id or "") and _PROVIDER_REVISION.fullmatch(record.revision or "")):
             return "Provider invoice reference is missing or malformed"
         if not (record.number or "").strip() or not isinstance(record.amount_cents, int) or record.amount_cents <= 0:
             return "Invoice number or amount is missing"

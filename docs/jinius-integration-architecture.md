@@ -26,6 +26,8 @@ Imported invoices are labelled "Synthetic Jinius demo" (`external_source = jiniu
 
 `integration_imports` holds one row per (organization, provider, external id, revision), so a re-sync skips records it has already seen. Records with an unknown supplier, a missing IBAN or an invalid IBAN never become invoices. They stay as `needs_review` rows with a reason and appear on the Integrations page.
 
+Revisions may not contain `-`, so a public ID maps back to exactly one (external id, revision) pair. Counts are saved after every record. The server log records only the run ID and the exception type, never the provider's error text. A run still marked running after 15 minutes is closed as failed when the next sync starts.
+
 Each run is stored in `sync_runs` with its counts and a fixed safe error message, and is audited (`INTEGRATION_SYNC`, `IMPORT_NEEDS_REVIEW`, `ASSESSED`). `LiveJiniusAdapter` still raises `NotImplementedError`. Resolving a review row (mapping the supplier, then assessing it) is not built yet; a corrected record arrives as a new provider revision.
 
 The Open Day questions and proof checklist are in [JINIUS_OPEN_DAY.md](JINIUS_OPEN_DAY.md). Before implementing `LiveJiniusAdapter`, the team needs Jinius's actual sandbox specification and permission to use it; no endpoint, credential format, payload, or bank capability should be inferred from the Marketplace article.
