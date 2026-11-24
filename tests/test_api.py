@@ -86,5 +86,11 @@ def test_reset_and_no_live_payment_endpoint(tmp_path):
 def test_no_full_account_exposed(tmp_path):
     c=client(tmp_path)
     invoice=c.get('/api/v1/invoices/INV-2409').json()
-    assert invoice['iban']=='•••• 9077'
-    assert 'SYNTHETIC-CY-9077' not in str(invoice)
+    assert invoice['iban']=='•••• 0099'
+    assert 'GB43TRST00000000000099' not in str(invoice)
+
+
+def test_jinius_sync_requires_postgres_mode(tmp_path):
+    c=client(tmp_path)
+    assert c.post('/api/v1/integrations/jinius/sync').status_code==403
+    assert c.get('/api/v1/integrations').json()['jinius']['sync_available'] is False

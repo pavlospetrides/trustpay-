@@ -1,11 +1,14 @@
 """Tenant-scoped PostgreSQL persistence. Never falls back to demo SQLite."""
 
 import json
+import logging
 import os
+import re
 import threading
 from collections import Counter
 from dataclasses import dataclass
 from decimal import Decimal
+from datetime import date
 from statistics import median
 from uuid import UUID, uuid4
 
@@ -13,8 +16,19 @@ import psycopg
 from psycopg.rows import dict_row
 from psycopg_pool import ConnectionPool
 
+from .jinius import InvoiceSource
 from .risk import assess_payment
-from .security import AccountProtector
+from .security import AccountProtector, normalize_iban
+
+logger = logging.getLogger(__name__)
+SOURCE_LABELS = {"synthetic_seed": "Synthetic development seed", "uploaded": "Uploaded invoice",
+                 "jinius_demo_adapter": "Synthetic Jinius demo"}
+_PROVIDER_REFERENCE = re.compile(r"[A-Za-z0-9._-]{1,64}")
+# No "-" in revisions, so JIN-<id>-r<revision> splits at its last "-" and two (id, revision) pairs never collide.
+_PROVIDER_REVISION = re.compile(r"[A-Za-z0-9._]{1,64}")
+SYNC_STOPPED = "Sync stopped before finishing. Imported records are kept and running the sync again is safe."
+_RUN_COUNTS = """update public.sync_runs set records_seen=%s,records_created=%s,records_needs_review=%s,
+    records_skipped=%s where organization_id=%s and id=%s"""
 
 
 @dataclass(frozen=True)
@@ -155,8 +169,7 @@ class PostgresStore:
             "status": row["status"], "verified": bool(row["verified_by"]),
             "verified_by": str(row["verified_by"]) if row["verified_by"] else None,
             "approved_by": str(row["approved_by"]) if row["approved_by"] else None,
-            "reference": "Synthetic development seed" if row["external_source"] == "synthetic_seed" else
-                         "Uploaded invoice" if row["external_source"] == "uploaded" else "Manual assessment",
+            "reference": SOURCE_LABELS.get(row["external_source"], "Manual assessment"),
             "source": row["external_source"],
         }
 
@@ -213,11 +226,12 @@ class PostgresStore:
                      "invoice_id": row["invoice_id"], "created_at": row["created_at"].isoformat()}
                     for row in rows]
 
-    def _audit(self, con, principal: Principal, invoice_id: str, action: str, title: str, detail: str):
+    def _audit(self, con, principal: Principal, invoice_id: str, action: str, title: str, detail: str,
+               target_type: str = "invoice"):
         con.execute("""insert into public.audit_logs
             (organization_id,actor_id,action,target_type,target_id,title,detail)
-            values (%s,%s,%s,'invoice',%s,%s,%s)""",
-            (principal.organization_id, principal.user_id, action, invoice_id, title, detail))
+            values (%s,%s,%s,%s,%s,%s,%s)""",
+            (principal.organization_id, principal.user_id, action, target_type, invoice_id, title, detail))
 
     def create_assessment(self, item: dict, principal: Principal):
         if principal.role not in {"owner", "admin", "analyst"}:
@@ -228,7 +242,6 @@ class PostgresStore:
         if item.get("currency", "EUR") != "EUR":
             raise ValueError("Only EUR assessments are supported by the current risk engine")
         org = principal.organization_id
-        ciphertext, fingerprint, last4 = self.protector.protect(item["creditor_account"])
         with self.connect() as con:
             supplier = None
             if item.get("supplier_id"):
@@ -246,45 +259,52 @@ class PostgresStore:
                          item.get("registration_number"), item.get("vat_number"))).fetchone()
             if supplier is None:
                 raise LookupError("Supplier not found")
-            if con.execute("select 1 from public.invoices where organization_id=%s and public_id=%s",
-                           (org, item["id"])).fetchone():
-                raise FileExistsError("Assessment ID already exists")
-            history = self._history(con, org, supplier["id"])
-            assessment = assess_payment(
-                invoice_number=item["invoice_number"], current_account=fingerprint,
-                amount_cents=item["amount_cents"],
-                previous_accounts=[h["iban_fingerprint"] for h in history],
-                previous_paid_amounts_cents=[cents(h["amount"]) for h in history],
-                previously_paid_invoices=[h["historical_invoice_number"] for h in history if h["historical_invoice_number"]],
-            )
-            account = con.execute("""insert into public.supplier_bank_accounts
-                (organization_id,supplier_id,encrypted_iban,iban_fingerprint,iban_last4)
-                values (%s,%s,%s,%s,%s) on conflict (organization_id,supplier_id,iban_fingerprint)
-                do update set updated_at=now() returning id""",
-                (org, supplier["id"], ciphertext, fingerprint, last4)).fetchone()
-            invoice = con.execute("""insert into public.invoices
-                (organization_id,public_id,supplier_id,external_source,external_invoice_id,
-                 invoice_number,issue_date,due_date,currency,total_amount,bank_account_id,status,created_by)
-                values (%s,%s,%s,%s,%s,%s,%s,%s,'EUR',%s,%s,%s,%s) returning id""",
-                (org, item["id"], supplier["id"], source, item["id"], item["invoice_number"],
-                 item["invoice_date"], item.get("due_date"), Decimal(item["amount_cents"]) / 100,
-                 account["id"], assessment.recommended_status,
-                 None if source == "synthetic_seed" else principal.user_id)).fetchone()
-            saved = con.execute("""insert into public.risk_assessments
-                (organization_id,invoice_id,score,severity,kind,recommended_status,engine_version,explanation,evidence)
-                values (%s,%s,%s,%s,%s,%s,'auditable-rules-v1',%s,%s) returning id""",
-                (org, invoice["id"], assessment.score, assessment.level, assessment.kind,
-                 assessment.recommended_status, assessment.reason,
-                 json.dumps({"historical_payment_count": len(history), "policy_score_not_probability": True}))).fetchone()
-            for signal in assessment.signals:
-                con.execute("""insert into public.risk_signals
-                    (organization_id,assessment_id,code,severity,weight,explanation,evidence)
-                    values (%s,%s,%s,%s,%s,%s,%s)""",
-                    (org, saved["id"], signal.code, signal.severity, signal.weight,
-                     signal.explanation, json.dumps({"historical_payment_count": len(history)})))
-            self._audit(con, principal, item["id"], "ASSESSED", "Payment risk assessed",
-                        f"{item['id']} · policy score {assessment.score}/100")
+            self._record_assessment(con, item, principal, supplier["id"], source)
         return self.invoice(item["id"], principal)
+
+    def _record_assessment(self, con, item: dict, principal: Principal, supplier_id: UUID, source: str) -> UUID:
+        """The one deterministic assessment write path shared by manual, uploaded, seeded and synced invoices."""
+        org = principal.organization_id
+        ciphertext, fingerprint, last4 = self.protector.protect(item["creditor_account"])
+        if con.execute("select 1 from public.invoices where organization_id=%s and public_id=%s",
+                       (org, item["id"])).fetchone():
+            raise FileExistsError("Assessment ID already exists")
+        history = self._history(con, org, supplier_id)
+        assessment = assess_payment(
+            invoice_number=item["invoice_number"], current_account=fingerprint,
+            amount_cents=item["amount_cents"],
+            previous_accounts=[h["iban_fingerprint"] for h in history],
+            previous_paid_amounts_cents=[cents(h["amount"]) for h in history],
+            previously_paid_invoices=[h["historical_invoice_number"] for h in history if h["historical_invoice_number"]],
+        )
+        account = con.execute("""insert into public.supplier_bank_accounts
+            (organization_id,supplier_id,encrypted_iban,iban_fingerprint,iban_last4)
+            values (%s,%s,%s,%s,%s) on conflict (organization_id,supplier_id,iban_fingerprint)
+            do update set updated_at=now() returning id""",
+            (org, supplier_id, ciphertext, fingerprint, last4)).fetchone()
+        invoice = con.execute("""insert into public.invoices
+            (organization_id,public_id,supplier_id,external_source,external_invoice_id,
+             invoice_number,issue_date,due_date,currency,total_amount,bank_account_id,status,created_by)
+            values (%s,%s,%s,%s,%s,%s,%s,%s,'EUR',%s,%s,%s,%s) returning id""",
+            (org, item["id"], supplier_id, source, item.get("external_invoice_id", item["id"]), item["invoice_number"],
+             item["invoice_date"], item.get("due_date"), Decimal(item["amount_cents"]) / 100,
+             account["id"], assessment.recommended_status,
+             None if source == "synthetic_seed" else principal.user_id)).fetchone()
+        saved = con.execute("""insert into public.risk_assessments
+            (organization_id,invoice_id,score,severity,kind,recommended_status,engine_version,explanation,evidence)
+            values (%s,%s,%s,%s,%s,%s,'auditable-rules-v1',%s,%s) returning id""",
+            (org, invoice["id"], assessment.score, assessment.level, assessment.kind,
+             assessment.recommended_status, assessment.reason,
+             json.dumps({"historical_payment_count": len(history), "policy_score_not_probability": True}))).fetchone()
+        for signal in assessment.signals:
+            con.execute("""insert into public.risk_signals
+                (organization_id,assessment_id,code,severity,weight,explanation,evidence)
+                values (%s,%s,%s,%s,%s,%s,%s)""",
+                (org, saved["id"], signal.code, signal.severity, signal.weight,
+                 signal.explanation, json.dumps({"historical_payment_count": len(history)})))
+        self._audit(con, principal, item["id"], "ASSESSED", "Payment risk assessed",
+                    f"{item['id']} · policy score {assessment.score}/100")
+        return invoice["id"]
 
     def assessment_history(self, invoice_id: str, principal: Principal):
         with self.connect() as con:
@@ -343,13 +363,158 @@ class PostgresStore:
         return self.invoice(row["public_id"], principal)
 
     def integrations(self, principal: Principal):
+        org = principal.organization_id
         with self.connect() as con:
             row = con.execute("""select status from public.integration_connections
-                where organization_id=%s and provider='jinius'""", (principal.organization_id,)).fetchone()
-        status = row["status"] if row else "disconnected"
-        return {"jinius": {"status": status, "adapter": "none", "live_connected": False,
-                           "next_step": "Configure an authorized sandbox after API documentation is available"},
-                "bank_payment": {"status": "disabled", "payment_initiation": False}}
+                where organization_id=%s and provider='jinius'""", (org,)).fetchone()
+        jinius = {"status": row["status"] if row else "disconnected", "adapter": "DemoJiniusAdapter",
+                  "source_label": SOURCE_LABELS["jinius_demo_adapter"], "live_connected": False,
+                  "sync_available": True,
+                  "next_step": "Live sync needs the official Jinius sandbox contract and access (issue #2)"}
+        try:
+            with self.connect() as con:
+                last_run = con.execute("""select r.id,r.status,r.started_at,r.finished_at,r.records_seen,
+                    r.records_created,r.records_needs_review,r.records_skipped,r.safe_error from public.sync_runs r
+                    join public.integration_connections c on c.organization_id=r.organization_id and c.id=r.connection_id
+                    where r.organization_id=%s and c.provider='jinius' order by r.started_at desc, r.id desc limit 1""",
+                    (org,)).fetchone()
+                last_success = con.execute("""select max(r.finished_at) as at from public.sync_runs r
+                    join public.integration_connections c on c.organization_id=r.organization_id and c.id=r.connection_id
+                    where r.organization_id=%s and c.provider='jinius' and r.status='success'""", (org,)).fetchone()
+                imported = con.execute("""select count(*) filter (where status='assessed') as assessed,
+                    count(*) filter (where status='needs_review') as needs_review from public.integration_imports
+                    where organization_id=%s and provider='jinius'""", (org,)).fetchone()
+                review = con.execute("""select external_id,revision,review_reason,created_at
+                    from public.integration_imports
+                    where organization_id=%s and provider='jinius' and status='needs_review'
+                    order by created_at desc, external_id limit 50""", (org,)).fetchall()
+        except (psycopg.errors.UndefinedTable, psycopg.errors.UndefinedColumn):
+            # shortcut: hosted dev gets migrations by hand; until 20261124000100 is applied, report sync as unavailable
+            logger.warning("integration_imports migration is not applied; Jinius sync is unavailable")
+            jinius.update(sync_available=False,
+                          next_step="Apply migration 20261124000100_integration_imports.sql to enable sync")
+        else:
+            jinius.update(
+                last_run=self._sync_run(last_run) if last_run else None,
+                last_success_at=last_success["at"].isoformat() if last_success["at"] else None,
+                imported_count=imported["assessed"], needs_review_count=imported["needs_review"],
+                needs_review=[{"external_id": r["external_id"], "revision": r["revision"],
+                               "reason": r["review_reason"], "created_at": r["created_at"].isoformat()}
+                              for r in review])
+        return {"jinius": jinius, "bank_payment": {"status": "disabled", "payment_initiation": False}}
+
+    @staticmethod
+    def _sync_run(row) -> dict:
+        return {"id": str(row["id"]), "status": row["status"], "started_at": row["started_at"].isoformat(),
+                "finished_at": row["finished_at"].isoformat() if row["finished_at"] else None,
+                "records_seen": row["records_seen"], "records_created": row["records_created"],
+                "records_needs_review": row["records_needs_review"], "records_skipped": row["records_skipped"],
+                "safe_error": row["safe_error"]}
+
+    def sync_invoices(self, adapter: InvoiceSource, principal: Principal, provider: str = "jinius") -> dict:
+        """Pull provider invoices and assess each one once per (organization, provider, external id, revision).
+
+        Never approves, never initiates payment: imported invoices enter the normal maker-checker queue with
+        the person who ran the sync as maker. Unresolvable records are kept for human review, not assessed.
+        """
+        if principal.role not in {"owner", "admin"}:
+            raise PermissionError("Only organization owners and admins can run an integration sync")
+        org = principal.organization_id
+        with self.connect() as con:
+            connection = con.execute("""insert into public.integration_connections(organization_id,provider,configuration)
+                values (%s,%s,%s) on conflict (organization_id,provider) do update set updated_at=now() returning id""",
+                (org, provider, json.dumps({"adapter": type(adapter).__name__}))).fetchone()
+            # A run whose process died never reached its final write; close it so it does not show "Running" forever.
+            con.execute("""update public.sync_runs set status='failed',finished_at=now(),safe_error=%s
+                where organization_id=%s and connection_id=%s and status='running'
+                and started_at < now() - interval '15 minutes'""", (SYNC_STOPPED, org, connection["id"]))
+            run = con.execute("""insert into public.sync_runs(organization_id,connection_id,status)
+                values (%s,%s,'running') returning id""", (org, connection["id"])).fetchone()
+        counts = Counter()
+        progress = lambda: (counts["seen"], counts["assessed"], counts["needs_review"], counts["skipped"], org, run["id"])
+        safe_error = None
+        try:
+            for record in adapter.list_invoices():
+                counts["seen"] += 1
+                counts[self._import_invoice(record, getattr(adapter, "source", provider), provider,
+                                            connection["id"], run["id"], principal)] += 1
+                with self.connect() as con:  # counts match what committed even if the final write below fails
+                    con.execute(_RUN_COUNTS, progress())
+        except Exception as exc:  # the provider or one record failed: keep what committed, report a safe message only
+            # The exception text can carry provider payload (account numbers), so log only its type.
+            logger.error("Integration sync %s failed (%s)", run["id"], type(exc).__name__)
+            safe_error = SYNC_STOPPED
+        status = "failed" if safe_error else "success"
+        with self.connect() as con:
+            con.execute(_RUN_COUNTS, progress())
+            row = con.execute("""update public.sync_runs set status=%s,finished_at=now(),safe_error=%s
+                where organization_id=%s and id=%s returning *""", (status, safe_error, org, run["id"])).fetchone()
+            self._audit(con, principal, str(run["id"]), "INTEGRATION_SYNC",
+                        "Jinius sync failed" if safe_error else "Jinius sync completed",
+                        f"{SOURCE_LABELS.get(getattr(adapter, 'source', ''), provider)} · {counts['seen']} seen · "
+                        f"{counts['assessed']} assessed · {counts['needs_review']} need review · "
+                        f"{counts['skipped']} already imported", target_type="sync_run")
+        return self._sync_run(row)
+
+    @staticmethod
+    def _import_problem(record) -> str | None:
+        if not (_PROVIDER_REFERENCE.fullmatch(record.id or "") and _PROVIDER_REVISION.fullmatch(record.revision or "")):
+            return "Provider invoice reference is missing or malformed"
+        if not (record.number or "").strip() or not isinstance(record.amount_cents, int) or record.amount_cents <= 0:
+            return "Invoice number or amount is missing"
+        try:
+            date.fromisoformat(record.date)
+        except (TypeError, ValueError):
+            return "Invoice date is missing or invalid"
+        if not (record.creditor_account or "").strip():
+            return "Invoice has no payment account"
+        try:
+            normalize_iban(record.creditor_account)
+        except ValueError:
+            return "Payment account is not a valid IBAN"
+        return None
+
+    def _import_invoice(self, record, source: str, provider: str, connection_id: UUID, run_id: UUID,
+                        principal: Principal) -> str:
+        org = principal.organization_id
+        evidence = {"supplier_reference": record.supplier_id, "invoice_number": record.number,
+                    "amount_cents": record.amount_cents, "issue_date": record.date,
+                    "account_last4": (record.creditor_account or "")[-4:] or None}
+        with self.connect() as con:
+            # The claim row makes re-syncs and concurrent syncs idempotent; it rolls back with any failure below.
+            claim = con.execute("""insert into public.integration_imports
+                (organization_id,connection_id,sync_run_id,provider,external_id,revision,source,status,evidence)
+                values (%s,%s,%s,%s,%s,%s,%s,'needs_review',%s)
+                on conflict (organization_id,provider,external_id,revision) do nothing returning id""",
+                (org, connection_id, run_id, provider, (record.id or "")[:200], (record.revision or "")[:200], source,
+                 json.dumps(evidence))).fetchone()
+            if claim is None:
+                return "skipped"
+            reason = self._import_problem(record)
+            supplier = None
+            if reason is None:
+                supplier = con.execute("""select id from public.suppliers where organization_id=%s and public_id=%s""",
+                                       (org, record.supplier_id)).fetchone()
+                if supplier is None:
+                    reason = "Supplier is not known in this organization"
+            invoice_id = None
+            if reason is None:
+                item = {"id": f"JIN-{record.id}-r{record.revision}", "external_invoice_id": record.id,
+                        "invoice_number": record.number, "amount_cents": record.amount_cents,
+                        "creditor_account": record.creditor_account, "invoice_date": record.date}
+                try:
+                    invoice_id = self._record_assessment(con, item, principal, supplier["id"], source)
+                except FileExistsError:
+                    reason = "An invoice with this provider reference already exists"
+            if invoice_id:
+                con.execute("""update public.integration_imports set status='assessed',invoice_id=%s,updated_at=now()
+                    where organization_id=%s and id=%s""", (invoice_id, org, claim["id"]))
+                return "assessed"
+            con.execute("""update public.integration_imports set review_reason=%s,updated_at=now()
+                where organization_id=%s and id=%s""", (reason, org, claim["id"]))
+            self._audit(con, principal, f"{record.id}@{record.revision}", "IMPORT_NEEDS_REVIEW",
+                        "Imported invoice needs human review", reason, target_type="integration_import")
+            return "needs_review"
 
     def _internal_invoice_id(self, con, public_id: str, principal: Principal):
         uuid_id, label = self._invoice_key(public_id)

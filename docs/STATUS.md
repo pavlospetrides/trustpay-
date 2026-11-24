@@ -1,6 +1,26 @@
 # Team status
 
-Updated 24 November 2026 for one-command startup ([#13](https://github.com/pavlospetrides/trustpay-/issues/13)).
+Updated 24 November 2026 for automatic Jinius sync against the synthetic adapter ([#18](https://github.com/pavlospetrides/trustpay-/issues/18)) and one-command startup ([#13](https://github.com/pavlospetrides/trustpay-/issues/13)).
+
+## Automatic Jinius sync, synthetic adapter (#18)
+
+In Supabase mode, an owner or admin can run **Run sync** on the Integrations page (`POST /api/v1/integrations/jinius/sync`). Each `DemoJiniusAdapter` invoice is then assessed once through the same deterministic path as uploads and enters the normal maker-checker queue, labelled "Synthetic Jinius demo". Records with an unknown supplier or a missing or invalid IBAN go to human review instead. Runs, counts and safe errors are stored in `sync_runs` and the audit log.
+
+The demo fixtures now use the same synthetic IBANs as the Postgres seed, so the imported changed-IBAN invoice scores 75. An existing local SQLite demo database keeps the old `SYNTHETIC-CY-*` values until you press Demo reset. Live Jinius access is still pending ([#2](https://github.com/pavlospetrides/trustpay-/issues/2)).
+
+The additive migration `20261124000100_integration_imports.sql` was **applied by hand to the hosted development project on 24 November 2026**. It ran in one transaction after checks confirmed the development environment, a matching project and only the two synthetic organizations. Afterwards the table existed with 0 rows, row-level security and the read-only policy were on, the three `sync_runs` columns were present, and existing invoice, payment and audit counts were unchanged. This adds no migration-history entry; never use `db push` there (see [Supabase setup](supabase-setup.md)). **Signed-in hosted run passed on 24 November 2026** (branch at `7c0eda4`, real browser, three synthetic personas).
+
+- **Owner (`boos@gmail.com`):** **Run sync** imported 4 invoices with 0 sent to review:
+  - `JIN-INV-2409-r1`: 75, needs review (changed IBAN)
+  - `JIN-INV-2410-r1`: 100, blocked (duplicate)
+  - `JIN-INV-2411-r1`: 65, needs review (amount)
+  - `JIN-INV-2412-r1`: 0, ready
+- **Re-sync:** a second sync created nothing new (4 already imported).
+- **Maker check:** the owner's own verify was refused (403).
+- **Analyst:** verification was recorded; the analyst's approve was refused (403).
+- **Approver:** approval succeeded with "no payment sent".
+
+The audit trail shows `INTEGRATION_SYNC`, `ASSESSED`, `VERIFY` and `APPROVE`. The database holds one assessment per import, one approval and no payment records. Evidence is on the PR for #18.
 
 ## One-command startup (#13)
 

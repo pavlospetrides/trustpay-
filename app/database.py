@@ -153,7 +153,7 @@ class Store:
             "signals":signals, "notes":[s["explanation"] for s in signals] or [r["reason"]],
             "status":r["status"], "verified":bool(r["verified_by"]),
             "verified_by":r["verified_by"], "approved_by":r["approved_by"],
-            "reference":"Jinius synthetic demo" if r["source"] == "jinius_demo_adapter" else "Manual demo assessment",
+            "reference":"Synthetic Jinius demo" if r["source"] == "jinius_demo_adapter" else "Manual demo assessment",
             "source":r["source"]}
 
     def invoices(self):
