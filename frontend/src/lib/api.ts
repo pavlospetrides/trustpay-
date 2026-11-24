@@ -61,7 +61,7 @@ export const api = {
   documents:(id:string)=>request<{id:string;content_type:string;size_bytes:number;created_at:string}[]>(`/v1/invoices/${encodeURIComponent(id)}/documents`),
   uploadDocument:(id:string,file:File)=>{const form=new FormData();form.set("file",file);return request<{id:string}>(`/v1/invoices/${encodeURIComponent(id)}/documents`,{method:"POST",body:form});},
   downloadDocument:async(id:string,documentId:string)=>{const response=await rawRequest(`/v1/invoices/${encodeURIComponent(id)}/documents/${encodeURIComponent(documentId)}`);return response.blob();},
-  suppliers:()=>request<Supplier[]>("/v1/suppliers"), audit:()=>request<AuditEvent[]>("/v1/audit"), integrations:()=>request<Integrations>("/v1/integrations"), syncJinius:()=>post<SyncRun>("/v1/integrations/jinius/sync"),
+  suppliers:()=>request<Supplier[]>("/v1/suppliers"), audit:()=>request<AuditEvent[]>("/v1/audit"), integrations:()=>request<Integrations>("/v1/integrations"), syncJinius:()=>post<SyncRun>("/v1/integrations/jinius/sync"), resolveImport:(externalId:string,revision:string,supplierId:string)=>post<Invoice>(`/v1/integrations/jinius/imports/${encodeURIComponent(externalId)}/${encodeURIComponent(revision)}/resolve`,{supplier_id:supplierId}),
   assess:(body:AssessmentInput)=>post<Invoice>("/v1/invoices/assess",body), verify:(id:string,note:string)=>post<Invoice>(`/v1/invoices/${encodeURIComponent(id)}/verify`,{evidence_note:note}),
   approve:(id:string)=>post<Invoice>(`/v1/invoices/${encodeURIComponent(id)}/approve`), hold:(id:string)=>post<Invoice>(`/v1/invoices/${encodeURIComponent(id)}/hold`), reset:()=>post<{reset:boolean}>("/v1/demo/reset")
 };
