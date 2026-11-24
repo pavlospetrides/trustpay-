@@ -30,3 +30,18 @@ def test_approval_rejects_unverified_risk_and_maker():
     row["score"] = 0
     with pytest.raises(PermissionError):
         authorize_transition(principal(ANALYST, "approver"), "approve", row)
+
+
+def test_pool_pings_only_connections_idle_past_the_threshold(monkeypatch):
+    from app import postgres_store as ps
+    pings = []
+    monkeypatch.setattr(ps.ConnectionPool, "check_connection", staticmethod(lambda conn: pings.append(conn)))
+    now = [1000.0]
+    monkeypatch.setattr(ps.time, "monotonic", lambda: now[0])
+
+    class Conn: pass
+    fresh, recent, idle = Conn(), Conn(), Conn()
+    ps._check_if_idle(fresh)                      # never returned yet: just opened
+    ps._mark_returned(recent); now[0] += 5; ps._check_if_idle(recent)
+    ps._mark_returned(idle); now[0] += ps.IDLE_CHECK_SECONDS + 1; ps._check_if_idle(idle)
+    assert pings == [idle]

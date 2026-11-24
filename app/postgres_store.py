@@ -3,6 +3,7 @@
 import json
 import os
 import threading
+import time
 from collections import Counter
 from dataclasses import dataclass
 from decimal import Decimal
@@ -53,6 +54,24 @@ def cents(amount: Decimal) -> int:
     return int(amount * 100)
 
 
+IDLE_CHECK_SECONDS = 30
+
+
+def _mark_returned(conn) -> None:
+    conn._trustpay_returned_at = time.monotonic()
+
+
+def _check_if_idle(conn) -> None:
+    """Ping only connections idle for a while (after sleep or a network change they may be dead).
+
+    A failed check makes the pool discard the connection and hand out another, so the request
+    never sees it. Connections reused within IDLE_CHECK_SECONDS skip the extra round trip.
+    """
+    returned_at = getattr(conn, "_trustpay_returned_at", None)
+    if returned_at is not None and time.monotonic() - returned_at > IDLE_CHECK_SECONDS:
+        ConnectionPool.check_connection(conn)
+
+
 class PostgresStore:
     is_postgres = True
 
@@ -67,8 +86,8 @@ class PostgresStore:
     def connect(self):
         """One transaction on a reused connection: commits on success, rolls back on error.
 
-        The pool opens lazily, so constructing a store never touches the network. Idle connections
-        are recycled after 60s instead of being checked on every checkout, which would add a
+        The pool opens lazily, so constructing a store never touches the network. Only connections
+        idle for more than IDLE_CHECK_SECONDS are pinged on checkout: checking every checkout adds a
         round trip to the remote database (measured: a burst of 50 drops from ~5.2s to ~2.1s median).
         prepare_threshold=None keeps Supabase's transaction pooler (port 6543) usable too.
         Each pooled connection holds one session-pooler slot, so keep TRUSTPAY_DB_POOL_SIZE small
@@ -80,6 +99,7 @@ class PostgresStore:
                     self._pool = ConnectionPool(
                         self.dsn, min_size=1, max_size=int(os.environ.get("TRUSTPAY_DB_POOL_SIZE", "5")),
                         timeout=10, max_idle=60, max_lifetime=600, open=True,
+                        check=_check_if_idle, reset=_mark_returned,
                         kwargs={"row_factory": dict_row, "connect_timeout": 5, "prepare_threshold": None})
         return self._pool.connection()
 
