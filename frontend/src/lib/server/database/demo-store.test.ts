@@ -16,6 +16,12 @@ function store(): DemoStore {
 }
 afterEach(() => { for (const instance of stores.splice(0)) if (instance !== undefined) { try { instance.close(); } catch { /* already closed */ } } for (const path of paths.splice(0)) rmSync(path, { recursive: true, force: true }); });
 
+/** The stored (unmasked) destination of a seeded invoice, read through a separate connection that is closed again. */
+function accountOf(db: DemoStore, id: string): string {
+  const native = new DatabaseSync(db.path);
+  try { return (native.prepare("SELECT creditor_account FROM invoices WHERE id=?").get(id) as { creditor_account: string }).creditor_account; } finally { native.close(); }
+}
+
 describe("synthetic local demo persistence", () => {
   it("seeds 14 Aegean payments and the four original policy scores", () => {
     const db = store();
@@ -119,6 +125,26 @@ describe("synthetic local demo persistence", () => {
     native.close();
     expect(db.transition("OLD-A", "approve", "").status).toBe("approved");
     expect(() => db.transition("OLD-B", "approve", "")).toThrow("another copy is already approved");
+  });
+
+  it("catches reformatted copies of an invoice and refuses a second approval", () => {
+    const db = store();
+    const account = accountOf(db, "INV-2412");
+    expect(db.transition("INV-2412", "approve", "").status).toBe("approved");
+    const copy = db.createAssessment({ id: "REFORMAT-1", supplier_id: "SUP-004", invoice_number: "pt 891", amount_cents: 125_000, creditor_account: account, invoice_date: "2027-01-15" });
+    expect([copy.risk, copy.status, copy.kind, copy.signals[0].code]).toEqual([75, "needs_review", "possible_duplicate", "POSSIBLE_DUPLICATE_INVOICE"]);
+    // Not a hard block: a verifier can record evidence, but approval still refuses a second approved copy.
+    expect(db.transition("REFORMAT-1", "verify", "Supplier confirmed by phone it is the same invoice").status).toBe("ready");
+    expect(() => db.transition("REFORMAT-1", "approve", "")).toThrow("another copy is already approved");
+    const paidCopy = db.createAssessment({ id: "REFORMAT-2", supplier_id: "SUP-004", invoice_number: "pt hist 0001", amount_cents: 125_000, creditor_account: account, invoice_date: "2027-03-15" });
+    expect(paidCopy.signals[0].explanation).toContain("already paid");
+  });
+
+  it("notes a same-amount invoice from the same supplier within a week without changing the score", () => {
+    const db = store();
+    const account = accountOf(db, "INV-2412");
+    const twin = db.createAssessment({ id: "TWIN-1", supplier_id: "SUP-004", invoice_number: "PT-77777", amount_cents: 124_000, creditor_account: account, invoice_date: "2026-11-20" });
+    expect([twin.risk, twin.status, twin.kind, twin.signals.map((signal) => signal.code)]).toEqual([0, "ready", "normal", ["SAME_AMOUNT_RECENT_INVOICE"]]);
   });
 
   it("keeps a hold in place when the held invoice is verified", () => {

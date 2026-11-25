@@ -3,7 +3,7 @@ import { mkdirSync } from "node:fs";
 import { dirname } from "node:path";
 import { releasedStatus, type TransitionAction } from "../approvals/policy";
 import type { AuditEvent, Invoice, Supplier, AssessmentInput } from "../../types";
-import { VERIFIED_ACCOUNT_TRUST_DAYS, assessPayment, normalizedAccount, pythonFixed2 } from "../fraud/risk";
+import { VERIFIED_ACCOUNT_TRUST_DAYS, assessPayment, normalizedAccount, pythonFixed2, sameInvoiceNumber } from "../fraud/risk";
 import { demoInvoices, suppliers as fixtures } from "../jinius/demo";
 
 const TENANT = "asteria-demo";
@@ -73,11 +73,15 @@ export class DemoStore {
     return dates.length ? dates[dates.length - 1].slice(0, 10) : null;
   }
   private invoiceNumbers(supplierId: string, rejected: boolean): string[] {
-    return (this.db.prepare(`SELECT invoice_number FROM invoices WHERE tenant_id=? AND supplier_id=? AND status${rejected ? "=" : "<>"}'rejected'`).all(TENANT, supplierId) as { invoice_number: string }[]).map((row) => row.invoice_number);
+    return this.supplierInvoices(supplierId, rejected).map((row) => row.invoiceNumber);
+  }
+  private supplierInvoices(supplierId: string, rejected: boolean): { invoiceNumber: string; amountCents: number; invoiceDate: string }[] {
+    return (this.db.prepare(`SELECT invoice_number,amount_cents,invoice_date FROM invoices WHERE tenant_id=? AND supplier_id=? AND status${rejected ? "=" : "<>"}'rejected'`).all(TENANT, supplierId) as { invoice_number: string; amount_cents: number; invoice_date: string }[])
+      .map((row) => ({ invoiceNumber: row.invoice_number, amountCents: row.amount_cents, invoiceDate: row.invoice_date }));
   }
   private insertAssessment(id: string, supplierId: string, invoiceNumber: string, amountCents: number, account: string, date: string, source: string): void {
     const history = this.history(supplierId);
-    const assessment = assessPayment({ invoiceNumber, currentAccount: account, amountCents, previousAccounts: history.map((row) => row.creditor_account), previousPaidAmountsCents: history.map((row) => row.amount_cents), previouslyPaidInvoices: history.map((row) => row.invoice_number), otherOpenInvoices: this.invoiceNumbers(supplierId, false), rejectedInvoices: this.invoiceNumbers(supplierId, true), accountVerifiedOn: this.trustedVerification(supplierId, account, amountCents, []) });
+    const assessment = assessPayment({ invoiceNumber, currentAccount: account, amountCents, previousAccounts: history.map((row) => row.creditor_account), previousPaidAmountsCents: history.map((row) => row.amount_cents), previouslyPaidInvoices: history.map((row) => row.invoice_number), otherOpenInvoices: this.invoiceNumbers(supplierId, false), rejectedInvoices: this.invoiceNumbers(supplierId, true), invoiceDate: date, otherOpenInvoiceDetails: this.supplierInvoices(supplierId, false), accountVerifiedOn: this.trustedVerification(supplierId, account, amountCents, []) });
     this.db.prepare("INSERT INTO invoices (id,tenant_id,supplier_id,invoice_number,amount_cents,creditor_account,invoice_date,source,risk_score,risk_level,risk_kind,reason,signals_json,status,verified_by,verified_note,approved_by,updated_at) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)").run(id, TENANT, supplierId, invoiceNumber, amountCents, account, date, source, assessment.score, assessment.level, assessment.kind, assessment.reason, JSON.stringify(assessment.signals), assessment.recommended_status, null, null, null, now());
     this.auditEvent(id, "trustpay-risk-engine", "ASSESSED", `Payment risk assessed · ${assessment.level}`, `${id} · ${assessment.score}/100 · ${assessment.reason}`);
   }
@@ -137,7 +141,8 @@ export class DemoStore {
         if (row.verified_by === actor) throw new Error("Maker-checker separation failed");
         // A score lowered by another invoice's verification is approvable only while that verification still stands.
         if (!row.verified_by && String(row.signals_json).includes("BANK_ACCOUNT_VERIFIED_CHANGE") && !this.trustedVerification(row.supplier_id, row.creditor_account, row.amount_cents, [actor])) throw new Error("Risky payment requires independent verification: the account verification it relied on is no longer valid for this approval (withdrawn, expired, or recorded by you)");
-        if (this.db.prepare("SELECT 1 FROM invoices WHERE tenant_id=? AND supplier_id=? AND lower(invoice_number)=lower(?) AND status='approved' AND id<>?").get(TENANT, row.supplier_id, row.invoice_number, id)) throw new Error("Invoice cannot be approved because another copy is already approved");
+        // Same matching rule as the risk engine: letter case, spacing, punctuation and leading zeros do not make a new invoice.
+        if ((this.db.prepare("SELECT invoice_number FROM invoices WHERE tenant_id=? AND supplier_id=? AND status='approved' AND id<>?").all(TENANT, row.supplier_id, id) as { invoice_number: string }[]).some((other) => sameInvoiceNumber(row.invoice_number, other.invoice_number))) throw new Error("Invoice cannot be approved because another copy is already approved");
         this.db.prepare("UPDATE invoices SET status='approved',approved_by=?,updated_at=? WHERE id=?").run(actor, now(), id);
         title = "Internal approval recorded — NO TRANSFER";
         detail = `${id} · finance manager approved demo decision; no bank payment initiated`;
