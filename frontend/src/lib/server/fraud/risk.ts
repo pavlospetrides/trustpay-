@@ -21,6 +21,8 @@ export interface RiskInput {
   previousAccounts: Iterable<string>;
   previousPaidAmountsCents: Iterable<number>;
   previouslyPaidInvoices: Iterable<string>;
+  /** Invoice numbers of this supplier's other invoices that are not rejected (open, held, blocked or approved). */
+  otherOpenInvoices?: Iterable<string>;
 }
 
 // Python's str.isspace() set: unlike JavaScript's \s it includes U+001C–U+001F and U+0085 and excludes U+FEFF.
@@ -66,10 +68,13 @@ export function assessPayment(input: RiskInput): Assessment {
   const accounts = [...input.previousAccounts].filter((account) => pyStrip(account)).map(normalizedAccount);
   const amounts = [...input.previousPaidAmountsCents].filter((amount) => amount > 0);
   const paid = new Set([...input.previouslyPaidInvoices].map((value) => casefold(pyStrip(value))));
+  const open = new Set([...(input.otherOpenInvoices ?? [])].map((value) => casefold(pyStrip(value))));
   const signals: RiskSignal[] = [];
 
   if (paid.has(casefold(pyStrip(invoiceNumber)))) {
     signals.push({ code: "DUPLICATE_PAID_INVOICE", weight: 100, explanation: "This supplier's invoice number matches a previously paid invoice. A second payment must be blocked.", severity: "critical" });
+  } else if (open.has(casefold(pyStrip(invoiceNumber)))) {
+    signals.push({ code: "DUPLICATE_OPEN_INVOICE", weight: 100, explanation: "This supplier's invoice number matches another invoice that is already open or approved. Only one copy may be approved; reject one before continuing.", severity: "critical" });
   }
   if (accounts.length) {
     const counts = new Map<string, number>();
@@ -92,7 +97,7 @@ export function assessPayment(input: RiskInput): Assessment {
     }
   }
   const score = Math.min(100, signals.reduce((sum, signal) => sum + signal.weight, 0));
-  const duplicate = signals.some((signal) => signal.code === "DUPLICATE_PAID_INVOICE");
+  const duplicate = signals.some((signal) => signal.code === "DUPLICATE_PAID_INVOICE" || signal.code === "DUPLICATE_OPEN_INVOICE");
   return {
     score,
     level: score >= 75 ? "critical" : score >= 40 ? "review" : "low",

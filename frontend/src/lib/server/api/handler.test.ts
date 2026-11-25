@@ -31,6 +31,18 @@ describe("single-server synthetic API", () => {
       expect(db.invoice("INV-2409").status).toBe("needs_review");
     } finally { db.close(); }
   });
+  it("rejects through the API with a reason and refuses a missing one", async () => {
+    const db = new DemoStore(":memory:");
+    const context = { mode: "sqlite" as const, demo: db };
+    const reject = (body?: unknown) => handleApiRequest(request("v1/invoices/INV-2412/reject", "POST", body), ["v1", "invoices", "INV-2412", "reject"], context);
+    try {
+      expect((await reject({ reason: "short" })).status).toBe(422);
+      expect((await reject({ reason: "            padded" })).status).toBe(422);
+      const rejected = await reject({ reason: "Supplier confirmed it never issued this" });
+      expect([rejected.status, (await rejected.json()).status]).toEqual([200, "rejected"]);
+      expect((await handleApiRequest(request("v1/invoices/INV-2412/approve", "POST"), ["v1", "invoices", "INV-2412", "approve"], context)).status).toBe(409);
+    } finally { db.close(); }
+  });
   it("rejects malformed manual assessments before persistence", async () => {
     const db = new DemoStore(":memory:");
     try {

@@ -1,4 +1,4 @@
-export type Status = "ready" | "needs_review" | "blocked" | "hold" | "approved";
+export type Status = "ready" | "needs_review" | "blocked" | "hold" | "approved" | "rejected";
 export interface Signal { code: string; explanation: string; weight?: number }
 export interface Invoice { id:string; supplier_id:string; supplier:string; short:string; invoice:string; amount_cents:number; amount:number; iban:string; previous:string; history:number; date:string; risk:number; level:string; kind:string; reason:string; ai_explanation?:string|null; ai_explanation_method?:"verified_policy"|"openai_summary"|null; signals:Signal[]; notes:string[]; status:Status; verified:boolean; verified_by:string|null; approved_by:string|null; reference:string; source:string }
 export interface Supplier { id:string; name:string; short:string; payment_count:number; last4:string; historical_median_eur:number|null }

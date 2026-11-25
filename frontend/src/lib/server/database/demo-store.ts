@@ -1,6 +1,7 @@
 import { DatabaseSync } from "node:sqlite";
 import { mkdirSync } from "node:fs";
 import { dirname } from "node:path";
+import { releasedStatus, type TransitionAction } from "../approvals/policy";
 import type { AuditEvent, Invoice, Supplier, AssessmentInput } from "../../types";
 import { assessPayment, pythonFixed2 } from "../fraud/risk";
 import { demoInvoices, suppliers as fixtures } from "../jinius/demo";
@@ -65,9 +66,12 @@ export class DemoStore {
       this.seed();
     });
   }
+  private openInvoiceNumbers(supplierId: string): string[] {
+    return (this.db.prepare("SELECT invoice_number FROM invoices WHERE tenant_id=? AND supplier_id=? AND status<>'rejected'").all(TENANT, supplierId) as { invoice_number: string }[]).map((row) => row.invoice_number);
+  }
   private insertAssessment(id: string, supplierId: string, invoiceNumber: string, amountCents: number, account: string, date: string, source: string): void {
     const history = this.history(supplierId);
-    const assessment = assessPayment({ invoiceNumber, currentAccount: account, amountCents, previousAccounts: history.map((row) => row.creditor_account), previousPaidAmountsCents: history.map((row) => row.amount_cents), previouslyPaidInvoices: history.map((row) => row.invoice_number) });
+    const assessment = assessPayment({ invoiceNumber, currentAccount: account, amountCents, previousAccounts: history.map((row) => row.creditor_account), previousPaidAmountsCents: history.map((row) => row.amount_cents), previouslyPaidInvoices: history.map((row) => row.invoice_number), otherOpenInvoices: this.openInvoiceNumbers(supplierId) });
     this.db.prepare("INSERT INTO invoices (id,tenant_id,supplier_id,invoice_number,amount_cents,creditor_account,invoice_date,source,risk_score,risk_level,risk_kind,reason,signals_json,status,verified_by,verified_note,approved_by,updated_at) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)").run(id, TENANT, supplierId, invoiceNumber, amountCents, account, date, source, assessment.score, assessment.level, assessment.kind, assessment.reason, JSON.stringify(assessment.signals), assessment.recommended_status, null, null, null, now());
     this.auditEvent(id, "trustpay-risk-engine", "ASSESSED", `Payment risk assessed · ${assessment.level}`, `${id} · ${assessment.score}/100 · ${assessment.reason}`);
   }
@@ -103,13 +107,14 @@ export class DemoStore {
     });
   }
   audit(): AuditEvent[] { return this.db.prepare("SELECT * FROM audit_events WHERE tenant_id=? ORDER BY id DESC LIMIT 200").all(TENANT) as unknown as AuditEvent[]; }
-  transition(id: string, action: "verify" | "approve" | "hold", note: string): Invoice {
+  transition(id: string, action: TransitionAction, note: string): Invoice {
     this.transaction(() => {
       const row = this.db.prepare("SELECT * FROM invoices WHERE id=? AND tenant_id=?").get(id, TENANT) as Row | undefined;
       if (!row) throw new Error("Invoice not found");
       let actor: string;
       let title: string;
       let detail: string;
+      if (row.status === "rejected") throw new Error("Rejected invoices are final");
       if (action === "verify") {
         if (row.risk_kind === "duplicate" || row.status === "approved" || row.status === "blocked") throw new Error("Blocked or already approved payments cannot be verified");
         if (row.verified_by) throw new Error("Independent verification has already been recorded");
@@ -126,6 +131,18 @@ export class DemoStore {
         this.db.prepare("UPDATE invoices SET status='approved',approved_by=?,updated_at=? WHERE id=?").run(actor, now(), id);
         title = "Internal approval recorded — NO TRANSFER";
         detail = `${id} · finance manager approved demo decision; no bank payment initiated`;
+      } else if (action === "release") {
+        if (row.status !== "hold") throw new Error("Invoice cannot be released because it is not on hold");
+        actor = "risk.analyst@demo.local";
+        this.db.prepare("UPDATE invoices SET status=?,updated_at=? WHERE id=?").run(releasedStatus({ status: row.status, score: row.risk_score, verifiedBy: row.verified_by as string | null, createdBy: null }), now(), id);
+        title = "Hold released";
+        detail = `${id} · returned to the review queue`;
+      } else if (action === "reject") {
+        if (note.trim().length < 12) throw new Error("Rejection reason must have at least 12 characters");
+        actor = "finance.manager@demo.local";
+        this.db.prepare("UPDATE invoices SET status='rejected',updated_at=? WHERE id=?").run(now(), id);
+        title = row.status === "approved" ? "Approval withdrawn — invoice rejected" : "Invoice rejected";
+        detail = `${id} · reason: ${note.trim()}`;
       } else {
         if (row.status === "approved" || row.status === "blocked") throw new Error("This invoice cannot be placed on hold");
         actor = "risk.analyst@demo.local";
