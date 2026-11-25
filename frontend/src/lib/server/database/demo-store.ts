@@ -39,7 +39,8 @@ export class DemoStore {
       this.db.exec("COMMIT");
       return result;
     } catch (error) {
-      this.db.exec("ROLLBACK");
+      // A RAISE(ROLLBACK) trigger or a failed COMMIT may already have ended the transaction; keep the original error.
+      if (this.db.isTransaction) this.db.exec("ROLLBACK");
       throw error;
     }
   }

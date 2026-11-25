@@ -1,6 +1,6 @@
 ﻿# TrustPay AI — σύντομη εκκίνηση
 
-Το TrustPay τρέχει εξ ολοκλήρου με Node.js και TypeScript. Χρειάζεται Node.js 24, χωρίς Python ή δεύτερο backend.
+Το TrustPay τρέχει εξ ολοκλήρου με Node.js και TypeScript. Χρειάζεται Node.js 24.11.1 ή νεότερο στη σειρά 24.x, χωρίς Python ή δεύτερο backend.
 
 ```powershell
 cd frontend

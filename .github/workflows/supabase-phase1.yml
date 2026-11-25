@@ -39,6 +39,8 @@ jobs:
           $nodeDirectory = Split-Path (Get-Command node).Source
           $env:Path = "$nodeDirectory;$env:WINDIR\System32;$env:WINDIR"
           if (Get-Command python -ErrorAction SilentlyContinue) { throw 'Python unexpectedly available on PATH' }
+          # node-gyp also probes py.exe and fixed install paths; a missing forced Python makes any native build fail.
+          $env:NODE_GYP_FORCE_PYTHON = 'C:\no-python\python.exe'
           npm ci
       - run: npm run test && npm run typecheck && npm run lint && npm run build
         working-directory: frontend

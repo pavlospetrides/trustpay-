@@ -1,8 +1,10 @@
 ﻿# Team status — 25 November 2026
 
-## Windows installation fix (25 November 2026)
+## Windows installation fix (25 November 2026, #25)
 
-At main commit `4eb62f7`, the local SQLite dependency falls back to native compilation on Windows Node.js 24.11.1 and fails without Windows SDK 10.0.26100.0. [Draft PR #25](https://github.com/pavlospetrides/trustpay-/pull/25) ports the synthetic local store to the built-in `node:sqlite` module, removes the native SQLite package, and adds a Windows CI installation job. The PostgreSQL and Supabase paths remain unchanged. Linux app, Supabase database, and Windows install jobs passed on code commit `6491ba2`; human review is pending.
+At main commit `4eb62f7`, the local SQLite dependency falls back to native compilation on Windows Node.js 24.11.1. It fails without Windows SDK 10.0.26100.0. [PR #25](https://github.com/pavlospetrides/trustpay-/pull/25) moves the synthetic local store to the built-in `node:sqlite` module and removes the native SQLite package. It also adds a Windows CI install job that runs without Python and with node-gyp's Python fallback disabled. The PostgreSQL and Supabase paths are unchanged. Node 24.11.1 or newer within 24.x is required.
+
+Pavlos wrote and tested the change on Windows. MakeItEzzz555 reviewed it as the human reviewer, with independent reviews by Claude and Codex. The reviews found that `node:sqlite` truncates text at a NUL character when reading. The API now rejects NUL in assessment, verification and resolve input, for both backends. The reviews also found that a rollback after SQLite had already rolled back hid the original error. Both bugs have regression tests. Remaining: Node 26 users get an engine warning, and the parity test does not compare HTTP status codes (Codex reports that intake POST answers 403 against a 422 fixture, not re-checked here). Both are follow-ups.
 
 ## Differentiation strategy (proposed, #28 / #29)
 

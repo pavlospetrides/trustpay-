@@ -12,7 +12,7 @@ npm ci
 npm run dev
 ```
 
-On Windows, stop a running `npm run dev` process before `npm ci`; the PDF reader's installed binary can be locked while the server is open. The local SQLite demo uses Node's built-in `node:sqlite` and does not need Python, `node-gyp`, or a Windows SDK.
+On Windows, stop a running `npm run dev` process before `npm ci`; the PDF reader's installed binary can be locked while the server is open. The local SQLite demo uses Node's built-in `node:sqlite` and does not need Python, `node-gyp`, or a Windows SDK. Node 24 prints an `ExperimentalWarning` for `node:sqlite` at startup; it is expected.
 
 Open http://127.0.0.1:3000. The same Next.js process serves the Crystal UI and `/api/health` and `/api/v1/*`. Without configuration it creates a local synthetic SQLite database at `data/trustpay.sqlite3`. The demo contains 14 Aegean payment records, a changed-account case scoring 75, a blocked duplicate scoring 100, an amount anomaly scoring 65, and a normal case scoring 0. Local actor actions are simulated. Use **Reset local demo** to restore the fixtures.
 
