@@ -3,7 +3,7 @@ import { mkdirSync } from "node:fs";
 import { dirname } from "node:path";
 import { releasedStatus, type TransitionAction } from "../approvals/policy";
 import type { AuditEvent, Invoice, Supplier, AssessmentInput } from "../../types";
-import { assessPayment, pythonFixed2 } from "../fraud/risk";
+import { VERIFIED_ACCOUNT_TRUST_DAYS, assessPayment, pythonFixed2 } from "../fraud/risk";
 import { demoInvoices, suppliers as fixtures } from "../jinius/demo";
 
 const TENANT = "asteria-demo";
@@ -66,12 +66,17 @@ export class DemoStore {
       this.seed();
     });
   }
+  /** Date of the latest VERIFY on a non-rejected invoice to this account within the trust window, or null. */
+  private accountVerifiedOn(supplierId: string, account: string): string | null {
+    const row = this.db.prepare("SELECT max(a.created_at) AS at FROM audit_events a JOIN invoices i ON i.id=a.invoice_id WHERE a.action='VERIFY' AND i.tenant_id=? AND i.supplier_id=? AND replace(upper(i.creditor_account),' ','')=replace(upper(?),' ','') AND i.status<>'rejected'").get(TENANT, supplierId, account) as { at: string | null } | undefined;
+    return row?.at && Date.now() - Date.parse(row.at) < VERIFIED_ACCOUNT_TRUST_DAYS * 86_400_000 ? row.at.slice(0, 10) : null;
+  }
   private invoiceNumbers(supplierId: string, rejected: boolean): string[] {
     return (this.db.prepare(`SELECT invoice_number FROM invoices WHERE tenant_id=? AND supplier_id=? AND status${rejected ? "=" : "<>"}'rejected'`).all(TENANT, supplierId) as { invoice_number: string }[]).map((row) => row.invoice_number);
   }
   private insertAssessment(id: string, supplierId: string, invoiceNumber: string, amountCents: number, account: string, date: string, source: string): void {
     const history = this.history(supplierId);
-    const assessment = assessPayment({ invoiceNumber, currentAccount: account, amountCents, previousAccounts: history.map((row) => row.creditor_account), previousPaidAmountsCents: history.map((row) => row.amount_cents), previouslyPaidInvoices: history.map((row) => row.invoice_number), otherOpenInvoices: this.invoiceNumbers(supplierId, false), rejectedInvoices: this.invoiceNumbers(supplierId, true) });
+    const assessment = assessPayment({ invoiceNumber, currentAccount: account, amountCents, previousAccounts: history.map((row) => row.creditor_account), previousPaidAmountsCents: history.map((row) => row.amount_cents), previouslyPaidInvoices: history.map((row) => row.invoice_number), otherOpenInvoices: this.invoiceNumbers(supplierId, false), rejectedInvoices: this.invoiceNumbers(supplierId, true), accountVerifiedOn: this.accountVerifiedOn(supplierId, account) });
     this.db.prepare("INSERT INTO invoices (id,tenant_id,supplier_id,invoice_number,amount_cents,creditor_account,invoice_date,source,risk_score,risk_level,risk_kind,reason,signals_json,status,verified_by,verified_note,approved_by,updated_at) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)").run(id, TENANT, supplierId, invoiceNumber, amountCents, account, date, source, assessment.score, assessment.level, assessment.kind, assessment.reason, JSON.stringify(assessment.signals), assessment.recommended_status, null, null, null, now());
     this.auditEvent(id, "trustpay-risk-engine", "ASSESSED", `Payment risk assessed · ${assessment.level}`, `${id} · ${assessment.score}/100 · ${assessment.reason}`);
   }

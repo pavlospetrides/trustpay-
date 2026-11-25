@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { assessPayment } from "./risk";
+import { assessPayment, identityMismatches } from "./risk";
 
 const base = {
   invoiceNumber: "ABC-003",
@@ -38,5 +38,24 @@ describe("Python risk engine parity", () => {
   it("rejects invalid amounts", () => {
     expect(() => assessPayment({ ...base, amountCents: 0 })).toThrow();
     expect(() => assessPayment({ ...base, amountCents: 1.5 })).toThrow();
+  });
+
+  it("downgrades a changed account that was independently verified, without hiding it", () => {
+    const changed = { ...base, currentAccount: "SYNTHETIC-9999" };
+    expect(assessPayment(changed)).toMatchObject({ score: 75, recommended_status: "needs_review" });
+    const verified = assessPayment({ ...changed, accountVerifiedOn: "2026-11-20" });
+    expect(verified).toMatchObject({ score: 25, recommended_status: "ready", kind: "iban" });
+    expect(verified.signals[0]).toMatchObject({ code: "BANK_ACCOUNT_VERIFIED_CHANGE", severity: "review" });
+    expect(verified.signals[0].explanation).toContain("2026-11-20");
+  });
+
+  it("flags VAT or registration mismatches strongly and name mismatches softly", () => {
+    expect(identityMismatches({ vat_number: "CY 1001-2345A", registration_number: "HE 12345", supplier_name: "Aegean Supplies Ltd." }, { vat_number: "10012345a", registration_number: "he12345", supplier_name: "AEGEAN SUPPLIES LIMITED" })).toEqual([]);
+    expect(identityMismatches({ vat_number: null, registration_number: "HE1" }, { vat_number: "CY1", registration_number: null })).toEqual([]);
+    expect(identityMismatches({ vat_number: "CY99999999Z", supplier_name: "Other Trading" }, { vat_number: "CY10012345A", supplier_name: "Aegean Supplies Ltd" })).toEqual(["vat_number", "supplier_name"]);
+    const vat = assessPayment({ ...base, identityMismatches: ["vat_number"] });
+    expect(vat).toMatchObject({ score: 50, recommended_status: "needs_review" });
+    expect(vat.signals[0].code).toBe("SUPPLIER_IDENTITY_MISMATCH");
+    expect(assessPayment({ ...base, identityMismatches: ["supplier_name"] })).toMatchObject({ score: 20, recommended_status: "ready" });
   });
 });

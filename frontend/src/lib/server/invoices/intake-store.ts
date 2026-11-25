@@ -121,7 +121,7 @@ export class IntakeStore {
       if (!supplier) throw new Error("Supplier not found");
       const [whole, fraction = ""] = fields.total_amount.split(".");
       const amountCents = Number(BigInt(whole) * 100n + BigInt(fraction.padEnd(2, "0")));
-      const invoiceId = await this.store.recordAssessment(con, { id: publicId, supplier_id: supplierId ?? "", invoice_number: fields.invoice_number, amount_cents: amountCents, creditor_account: fields.iban, invoice_date: fields.invoice_date, due_date: fields.due_date }, principal, supplier.id, "uploaded");
+      const invoiceId = await this.store.recordAssessment(con, { id: publicId, supplier_id: supplierId ?? "", invoice_number: fields.invoice_number, amount_cents: amountCents, creditor_account: fields.iban, invoice_date: fields.invoice_date, due_date: fields.due_date, supplier_name: fields.supplier_name, vat_number: fields.vat_number, registration_number: fields.registration_number }, principal, supplier.id, "uploaded");
       const documentId = row.storage_path.split("/").at(-1)!.split(".")[0];
       await con.query(`insert into public.invoice_documents (id,organization_id,invoice_id,storage_path,content_type,size_bytes,uploaded_by) values ($1,$2,$3,$4,$5,$6,$7) on conflict (storage_path) do nothing`, [documentId, principal.organizationId, invoiceId, row.storage_path, row.content_type, row.size_bytes, row.uploaded_by]);
       const policy = (await con.query(`select explanation from public.risk_assessments where organization_id=$1 and invoice_id=$2 order by assessed_at desc,id desc limit 1`, [principal.organizationId, invoiceId])).rows[0];

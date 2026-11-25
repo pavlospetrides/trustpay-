@@ -25,6 +25,31 @@ export interface RiskInput {
   otherOpenInvoices?: Iterable<string>;
   /** Invoice numbers of this supplier's rejected invoices. A resubmission needs independent verification. */
   rejectedInvoices?: Iterable<string>;
+  /** When the destination account was last independently verified on a non-rejected invoice within the trust window (ISO date). */
+  accountVerifiedOn?: string | null;
+  /** Identity fields that differ between the uploaded invoice and the supplier record. */
+  identityMismatches?: IdentityField[];
+}
+
+export type IdentityField = "vat_number" | "registration_number" | "supplier_name";
+export interface IdentityValues { vat_number?: string | null; registration_number?: string | null; supplier_name?: string | null }
+
+/** How long an independent account verification lowers the changed-account signal. */
+export const VERIFIED_ACCOUNT_TRUST_DAYS = 90;
+
+const LEGAL_SUFFIXES = /\b(limited|ltd|llc|plc|inc|sa|gmbh|co|company|corp|corporation)\b/g;
+const identityKey = (field: IdentityField, value: string): string => {
+  const plain = casefold(value).replace(field === "supplier_name" ? LEGAL_SUFFIXES : /$^/, "").replace(/[^\p{L}\p{N}]/gu, "");
+  // A VAT number may be written with or without its country prefix (CY10012345A vs 10012345A).
+  return field === "vat_number" ? plain.replace(/^[a-z]{2}(?=\d)/, "") : plain;
+};
+
+/** Fields present on both sides that do not match after normalisation. Missing values are never compared. */
+export function identityMismatches(invoice: IdentityValues, supplier: IdentityValues): IdentityField[] {
+  return (["vat_number", "registration_number", "supplier_name"] as const).filter((field) => {
+    const left = invoice[field]?.trim(), right = supplier[field]?.trim();
+    return Boolean(left && right) && identityKey(field, left!) !== identityKey(field, right!);
+  });
 }
 
 // Python's str.isspace() set: unlike JavaScript's \s it includes U+001C–U+001F and U+0085 and excludes U+FEFF.
@@ -85,7 +110,9 @@ export function assessPayment(input: RiskInput): Assessment {
     const counts = new Map<string, number>();
     for (const account of accounts) counts.set(account, (counts.get(account) ?? 0) + 1);
     const canonical = [...counts.keys()].sort().reduce((best, account) => (counts.get(account)! > counts.get(best)! ? account : best));
-    if (normalizedAccount(currentAccount) !== canonical) {
+    if (normalizedAccount(currentAccount) !== canonical && input.accountVerifiedOn) {
+      signals.push({ code: "BANK_ACCOUNT_VERIFIED_CHANGE", weight: 25, explanation: `The payment destination differs from the account used in ${counts.get(canonical)} of ${accounts.length} prior supplier payments, but it was independently verified on ${input.accountVerifiedOn}. Check that evidence before approval.`, severity: "review" });
+    } else if (normalizedAccount(currentAccount) !== canonical) {
       signals.push({ code: "BANK_ACCOUNT_CHANGED", weight: 75, explanation: `The payment destination differs from the account used in ${counts.get(canonical)} of ${accounts.length} prior supplier payments. Independently verify the new account.`, severity: "critical" });
     }
   } else {
@@ -101,6 +128,14 @@ export function assessPayment(input: RiskInput): Assessment {
       signals.push({ code: "ELEVATED_AMOUNT", weight: 40, explanation: `Amount is ${ratio}× the historical median (€${typical}).`, severity: "review" });
     }
   }
+  const mismatches = input.identityMismatches ?? [];
+  const strong = mismatches.filter((field) => field !== "supplier_name");
+  if (strong.length) {
+    signals.push({ code: "SUPPLIER_IDENTITY_MISMATCH", weight: 50, explanation: `The invoice's ${strong.map((field) => field.replace("_", " ")).join(" and ")} does not match the selected supplier record. Confirm who issued this invoice before approval.`, severity: "review" });
+  }
+  if (mismatches.includes("supplier_name")) {
+    signals.push({ code: "SUPPLIER_NAME_MISMATCH", weight: 20, explanation: "The supplier name on the invoice differs from the selected supplier record.", severity: "review" });
+  }
   const score = Math.min(100, signals.reduce((sum, signal) => sum + signal.weight, 0));
   const duplicate = signals.some((signal) => signal.code === "DUPLICATE_PAID_INVOICE" || signal.code === "DUPLICATE_OPEN_INVOICE");
   return {
@@ -109,6 +144,6 @@ export function assessPayment(input: RiskInput): Assessment {
     recommended_status: duplicate ? "blocked" : score >= 40 ? "needs_review" : "ready",
     signals,
     reason: signals[0]?.explanation ?? "Account, invoice reference and amount are consistent with the available historical data.",
-    kind: duplicate ? "duplicate" : signals.some((signal) => signal.code === "BANK_ACCOUNT_CHANGED") ? "iban" : signals.some((signal) => signal.code === "LARGE_AMOUNT_DEVIATION" || signal.code === "ELEVATED_AMOUNT") ? "amount" : signals.length ? "new" : "normal",
+    kind: duplicate ? "duplicate" : signals.some((signal) => signal.code === "BANK_ACCOUNT_CHANGED" || signal.code === "BANK_ACCOUNT_VERIFIED_CHANGE") ? "iban" : signals.some((signal) => signal.code === "LARGE_AMOUNT_DEVIATION" || signal.code === "ELEVATED_AMOUNT") ? "amount" : signals.length ? "new" : "normal",
   };
 }

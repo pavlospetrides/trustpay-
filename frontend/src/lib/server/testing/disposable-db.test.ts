@@ -96,6 +96,15 @@ describe.skipIf(!disposableUrl)("disposable Supabase database", () => {
     expect((await call("PATCH", `/api/v1/invoice-intakes/${second.body.id}`, "maker", { fields: second.body.fields, supplier_id: null, create_new_supplier: true })).status).toBe(200);
     const created = await call("POST", `/api/v1/invoice-intakes/${second.body.id}/analyze`, "maker");
     expect([created.status, created.body.history, created.body.risk]).toEqual([200, 0, 45]);
+
+    // A VAT number that differs from the supplier record is flagged; the account verified above is trusted, not re-flagged at 75.
+    await sql("update public.suppliers set vat_number='CY10012345A' where organization_id=$1 and public_id='TEST-SUP'", [orgA]);
+    const vatText = text.replace("NEW-456", "NEW-999").replace("Currency: EUR\n", "Currency: EUR\nVAT Number: CY99999999Z\n");
+    const third = await call("POST", "/api/v1/invoice-intakes", "maker", pdfForm(vatText, "vat.pdf"), { "Idempotency-Key": "phase2-synthetic-three" });
+    expect(third.body.fields.vat_number).toBe("CY99999999Z");
+    expect((await call("PATCH", `/api/v1/invoice-intakes/${third.body.id}`, "maker", { fields: third.body.fields, supplier_id: "TEST-SUP", create_new_supplier: false })).status).toBe(200);
+    const mismatched = await call("POST", `/api/v1/invoice-intakes/${third.body.id}/analyze`, "maker");
+    expect(mismatched.body.signals.map((signal: { code: string }) => signal.code)).toEqual(expect.arrayContaining(["SUPPLIER_IDENTITY_MISMATCH", "BANK_ACCOUNT_VERIFIED_CHANGE"]));
   });
 
   it("syncs Jinius idempotently, per tenant, and keeps maker-checker", async () => {

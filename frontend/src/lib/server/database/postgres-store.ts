@@ -2,7 +2,7 @@ import type { AuditEvent, AssessmentInput, Invoice, Supplier } from "../../types
 import type { AssessmentHistory } from "../../intake";
 import type { Principal, TransitionAction } from "../approvals/policy";
 import { authorizeTransition, releasedStatus } from "../approvals/policy";
-import { assessPayment } from "../fraud/risk";
+import { assessPayment, identityMismatches, VERIFIED_ACCOUNT_TRUST_DAYS } from "../fraud/risk";
 import { AccountProtector } from "../security/account";
 import { centsToDecimal, decimalToCents } from "./money";
 import { presentInvoice, presentSupplierHistory, type HistoricalPayment, type InvoiceRow } from "./present";
@@ -110,17 +110,22 @@ export class PgStore {
     return this.invoice(item.id, principal);
   }
 
-  async recordAssessment(con: QueryConnection, item: AssessmentInput & { due_date?: string | null; external_invoice_id?: string }, principal: Principal, supplierId: string, source: string): Promise<string> {
+  async recordAssessment(con: QueryConnection, item: AssessmentInput & { due_date?: string | null; external_invoice_id?: string; supplier_name?: string | null; vat_number?: string | null; registration_number?: string | null }, principal: Principal, supplierId: string, source: string): Promise<string> {
     const org = principal.organizationId;
     const account = this.protector.protect(item.creditor_account);
     if ((await con.query(`select 1 from public.invoices where organization_id=$1 and public_id=$2`, [org, item.id])).rows[0]) throw new Error("Assessment ID already exists");
     // Serialise assessments per supplier so two concurrent copies of one invoice cannot both miss each other.
-    await con.query(`select 1 from public.suppliers where organization_id=$1 and id=$2 for update`, [org, supplierId]);
+    const supplierRecord = (await con.query(`select name as supplier_name,vat_number,registration_number from public.suppliers where organization_id=$1 and id=$2 for update`, [org, supplierId])).rows[0] ?? {};
+    // A verification counts only while the invoice that carried it is not rejected, so rejecting after fraud cancels the trust.
+    const accountVerifiedOn = (await con.query(`select max(v.verified_at)::date::text as verified_on from public.verification_requests v
+      join public.supplier_bank_accounts b on b.organization_id=v.organization_id and b.id=v.bank_account_id
+      join public.invoices i on i.organization_id=v.organization_id and i.id=v.invoice_id
+      where v.organization_id=$1 and b.supplier_id=$2 and b.iban_fingerprint=$3 and v.status='verified' and i.status<>'rejected' and v.verified_at > now() - make_interval(days => $4)`, [org, supplierId, account.fingerprint, VERIFIED_ACCOUNT_TRUST_DAYS])).rows[0]?.verified_on ?? null;
     const history = await this.history(con, org, supplierId);
     const numbers = (await con.query(`select invoice_number,status from public.invoices where organization_id=$1 and supplier_id=$2`, [org, supplierId])).rows as { invoice_number: string; status: string }[];
     const otherOpenInvoices = numbers.filter((row) => row.status !== "rejected").map((row) => row.invoice_number);
     const rejectedInvoices = numbers.filter((row) => row.status === "rejected").map((row) => row.invoice_number);
-    const assessment = assessPayment({ invoiceNumber: item.invoice_number, currentAccount: account.fingerprint, amountCents: item.amount_cents, previousAccounts: history.map((row) => row.iban_fingerprint), previousPaidAmountsCents: history.map((row) => decimalToCents(row.amount)), previouslyPaidInvoices: history.flatMap((row) => row.historical_invoice_number ? [row.historical_invoice_number] : []), otherOpenInvoices, rejectedInvoices });
+    const assessment = assessPayment({ invoiceNumber: item.invoice_number, currentAccount: account.fingerprint, amountCents: item.amount_cents, previousAccounts: history.map((row) => row.iban_fingerprint), previousPaidAmountsCents: history.map((row) => decimalToCents(row.amount)), previouslyPaidInvoices: history.flatMap((row) => row.historical_invoice_number ? [row.historical_invoice_number] : []), otherOpenInvoices, rejectedInvoices, accountVerifiedOn, identityMismatches: identityMismatches(item, supplierRecord) });
     const accountId = (await con.query(`insert into public.supplier_bank_accounts (organization_id,supplier_id,encrypted_iban,iban_fingerprint,iban_last4) values ($1,$2,$3,$4,$5) on conflict (organization_id,supplier_id,iban_fingerprint) do update set updated_at=now() returning id`, [org, supplierId, account.encrypted, account.fingerprint, account.last4])).rows[0].id;
     const invoiceId = (await con.query(`insert into public.invoices (organization_id,public_id,supplier_id,external_source,external_invoice_id,invoice_number,issue_date,due_date,currency,total_amount,bank_account_id,status,created_by) values ($1,$2,$3,$4,$5,$6,$7,$8,'EUR',$9,$10,$11,$12) returning id`, [org, item.id, supplierId, source, item.external_invoice_id ?? item.id, item.invoice_number, item.invoice_date, item.due_date ?? null, centsToDecimal(item.amount_cents), accountId, assessment.recommended_status, source === "synthetic_seed" ? null : principal.userId])).rows[0].id;
     const saved = (await con.query(`insert into public.risk_assessments (organization_id,invoice_id,score,severity,kind,recommended_status,engine_version,explanation,evidence) values ($1,$2,$3,$4,$5,$6,'auditable-rules-v1',$7,$8::jsonb) returning id`, [org, invoiceId, assessment.score, assessment.level, assessment.kind, assessment.recommended_status, assessment.reason, JSON.stringify({ historical_payment_count: history.length, policy_score_not_probability: true })])).rows[0];
