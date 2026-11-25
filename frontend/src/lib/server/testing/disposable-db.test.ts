@@ -39,6 +39,9 @@ describe.skipIf(!disposableUrl)("disposable Supabase database", () => {
     // A second copy of the approved invoice (different ID, same supplier invoice number) is a hard duplicate.
     const copy = await call("POST", "/api/v1/invoices/assess", "maker", { id: `${id}-COPY`, supplier_id: "TEST-SUP", invoice_number: "new-001", amount_cents: 842000, creditor_account: syntheticIban(99), invoice_date: "2026-11-23" });
     expect([copy.status, copy.body.risk, copy.body.status]).toEqual([201, 100, "blocked"]);
+    // Even if a copy slipped through before screening existed, approval re-checks and refuses it.
+    await sql("update public.invoices set status='ready', verified_by=$1 where public_id=$2", [verifier, `${id}-COPY`]);
+    expect((await call("POST", `/api/v1/invoices/${id}-COPY/approve`, "approver")).status).toBe(403);
     // Withdrawing the approval rejects the invoice, records the decision, and is final.
     expect((await call("POST", `${path}/reject`, "approver", { reason: "short" })).status).toBe(422);
     const rejected = await call("POST", `${path}/reject`, "approver", { reason: "Synthetic fraud report from supplier" });
