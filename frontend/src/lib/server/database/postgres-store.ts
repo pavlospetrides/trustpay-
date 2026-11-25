@@ -140,7 +140,7 @@ export class PgStore {
 
   async transition(id: string, action: TransitionAction, note: string, principal: Principal): Promise<Invoice> {
     await transaction(this.pool, async (con) => {
-      const row = (await con.query(`select i.*,a.score from public.invoices i join lateral (select score,id as assessment_id from public.risk_assessments a where a.organization_id=i.organization_id and a.invoice_id=i.id order by a.assessed_at desc,a.id desc limit 1) a on true where i.organization_id=$1 and (i.id=$2::uuid or i.public_id=$3) for update of i`, [principal.organizationId, internalId(id), id])).rows[0];
+      const row = (await con.query(`select i.*,a.score,a.assessment_id from public.invoices i join lateral (select score,id as assessment_id from public.risk_assessments a where a.organization_id=i.organization_id and a.invoice_id=i.id order by a.assessed_at desc,a.id desc limit 1) a on true where i.organization_id=$1 and (i.id=$2::uuid or i.public_id=$3) for update of i`, [principal.organizationId, internalId(id), id])).rows[0];
       if (!row) throw new Error("Invoice not found");
       const policyRow = { status: row.status, score: row.score, verifiedBy: row.verified_by, createdBy: row.created_by };
       authorizeTransition(principal, action, policyRow);
@@ -156,6 +156,7 @@ export class PgStore {
         // Same supplier lock as assessment: two copies cannot be approved concurrently, and copies from before #30 are caught here.
         await con.query(`select 1 from public.suppliers where organization_id=$1 and id=$2 for update`, [principal.organizationId, row.supplier_id]);
         // A score lowered by another invoice's verification is approvable only while that verification still stands.
+        if (!row.assessment_id) throw new Error("Invoice cannot be approved without a current risk assessment");
         if (!row.verified_by && (await con.query(`select 1 from public.risk_signals where organization_id=$1 and assessment_id=$2 and code='BANK_ACCOUNT_VERIFIED_CHANGE'`, [principal.organizationId, row.assessment_id])).rows[0]) {
           const fingerprint = (await con.query(`select iban_fingerprint from public.supplier_bank_accounts where organization_id=$1 and id=$2`, [principal.organizationId, row.bank_account_id])).rows[0].iban_fingerprint;
           if (!(await this.accountVerifiedOn(con, principal.organizationId, row.supplier_id, fingerprint))) throw new Error("Risky invoice needs independent verification: the account verification it relied on was withdrawn or expired");
