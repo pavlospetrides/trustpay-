@@ -1,5 +1,11 @@
 ﻿# Team status — 25 November 2026
 
+## Windows installation fix (25 November 2026, #25)
+
+At main commit `4eb62f7`, the local SQLite dependency falls back to native compilation on Windows Node.js 24.11.1. It fails without Windows SDK 10.0.26100.0. [PR #25](https://github.com/pavlospetrides/trustpay-/pull/25) moves the synthetic local store to the built-in `node:sqlite` module and removes the native SQLite package. It also adds a Windows CI install job that runs without Python and with node-gyp's Python fallback disabled. The PostgreSQL and Supabase paths are unchanged. Node 24.11.1 or newer within 24.x is required.
+
+Pavlos wrote and tested the change on Windows. MakeItEzzz555 reviewed it as the human reviewer, with independent reviews by Claude and Codex. The reviews found that `node:sqlite` truncates text at a NUL character when reading. The API now rejects NUL in assessment, verification and resolve input, for both backends. The reviews also found that a rollback after SQLite had already rolled back hid the original error. Both bugs have regression tests. Remaining: Node 26 users get an engine warning, and the parity test does not compare HTTP status codes (Codex reports that intake POST answers 403 against a 422 fixture, not re-checked here). Both are follow-ups.
+
 ## Differentiation strategy (proposed, #28 / #29)
 
 Many teams may enter the same "AI checks the invoice IBAN before you pay, with Jinius" idea. Claude and Codex researched it independently and agreed a direction. TrustPay should confirm a changed payment destination with the supplier who issued the invoice on Jinius, then approve that exact invoice version with an audit trail. An edit invalidates both the supplier confirmation and the buyer approval. The demo opens with the emailed PDF beside the supplier-issued Jinius record. Details, sources and claims to avoid are in [differentiation-strategy.md](differentiation-strategy.md). The raw reports are in [research/](research/).

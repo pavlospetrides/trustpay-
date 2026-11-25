@@ -2,6 +2,7 @@ import { afterEach, describe, expect, it } from "vitest";
 import { mkdtempSync, rmSync } from "node:fs";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
+import { DatabaseSync } from "node:sqlite";
 import { DemoStore } from "./demo-store";
 
 const paths: string[] = [];
@@ -44,5 +45,52 @@ describe("synthetic local demo persistence", () => {
     const reopened = new DemoStore(path);
     expect(reopened.invoice("NEW-1").risk).toBe(75);
     reopened.close();
+  });
+
+  it("keeps the existing SQLite file and leaves no partial invoice or audit on a rejected assessment", () => {
+    const db = store();
+    const initialInvoices = db.invoices().length;
+    const initialAudit = db.audit().length;
+    expect(() => db.createAssessment({ id: "INV-2409", supplier_id: "SUP-001", invoice_number: "DUPLICATE", amount_cents: 100, creditor_account: "SYNTHETIC", invoice_date: "2026-11-24" })).toThrow();
+    expect(db.invoices()).toHaveLength(initialInvoices);
+    expect(db.audit()).toHaveLength(initialAudit);
+    const path = db.path;
+    db.close();
+    const native = new DatabaseSync(path);
+    expect(native.prepare("SELECT COUNT(*) AS total FROM payments_history WHERE supplier_id=?").get("SUP-001")).toMatchObject({ total: 14 });
+    expect(native.prepare("SELECT risk_score AS score,status FROM invoices WHERE id=?").get("INV-2409")).toMatchObject({ score: 75, status: "needs_review" });
+    native.close();
+  });
+
+  it("rolls back an invoice when its audit insert fails", () => {
+    const db = store();
+    const native = new DatabaseSync(db.path);
+    native.exec("CREATE TRIGGER reject_synthetic_audit BEFORE INSERT ON audit_events WHEN NEW.invoice_id='ROLLBACK-1' BEGIN SELECT RAISE(ABORT, 'synthetic audit failure'); END");
+    native.close();
+    const auditBefore = db.audit().length;
+    expect(() => db.createAssessment({ id: "ROLLBACK-1", supplier_id: "SUP-001", invoice_number: "AS-ROLLBACK", amount_cents: 800_000, creditor_account: "GB43TRST00000000000099", invoice_date: "2026-11-24" })).toThrow("synthetic audit failure");
+    expect(() => db.invoice("ROLLBACK-1")).toThrow("Invoice not found");
+    expect(db.audit()).toHaveLength(auditBefore);
+  });
+
+  it("keeps the trigger's error when SQLite already rolled the transaction back", () => {
+    const db = store();
+    const native = new DatabaseSync(db.path);
+    native.exec("CREATE TRIGGER rollback_synthetic_audit BEFORE INSERT ON audit_events WHEN NEW.invoice_id='ROLLBACK-2' BEGIN SELECT RAISE(ROLLBACK, 'synthetic rollback'); END");
+    native.close();
+    expect(() => db.createAssessment({ id: "ROLLBACK-2", supplier_id: "SUP-001", invoice_number: "AS-ROLLBACK-2", amount_cents: 800_000, creditor_account: "GB43TRST00000000000099", invoice_date: "2026-11-24" })).toThrow("synthetic rollback");
+    expect(() => db.invoice("ROLLBACK-2")).toThrow("Invoice not found");
+  });
+
+  it("keeps an approval and its audit history after the file is reopened", () => {
+    const db = store();
+    db.transition("INV-2409", "verify", "Independent callback confirmed");
+    db.transition("INV-2409", "approve", "");
+    const path = db.path;
+    db.close();
+    const reopened = new DemoStore(path);
+    stores.push(reopened);
+    expect(reopened.invoice("INV-2409").status).toBe("approved");
+    expect(reopened.audit().filter((event) => event.invoice_id === "INV-2409").map((event) => event.action)).toEqual(["APPROVE", "VERIFY", "ASSESSED"]);
   });
 });

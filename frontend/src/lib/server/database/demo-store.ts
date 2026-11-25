@@ -1,4 +1,4 @@
-import Database from "better-sqlite3";
+import { DatabaseSync } from "node:sqlite";
 import { mkdirSync } from "node:fs";
 import { dirname } from "node:path";
 import type { AuditEvent, Invoice, Supplier, AssessmentInput } from "../../types";
@@ -17,11 +17,10 @@ function canonical(accounts: string[]): string {
 }
 
 export class DemoStore {
-  private readonly db: Database.Database;
+  private readonly db: DatabaseSync;
   constructor(readonly path: string) {
     if (path !== ":memory:") mkdirSync(dirname(path), { recursive: true });
-    this.db = new Database(path, { timeout: 10_000 });
-    this.db.pragma("foreign_keys = ON");
+    this.db = new DatabaseSync(path, { timeout: 10_000, enableForeignKeyConstraints: true });
     this.db.exec(`
       CREATE TABLE IF NOT EXISTS suppliers (id TEXT PRIMARY KEY, tenant_id TEXT NOT NULL, name TEXT NOT NULL, short_name TEXT NOT NULL);
       CREATE TABLE IF NOT EXISTS payments_history (id INTEGER PRIMARY KEY AUTOINCREMENT, supplier_id TEXT NOT NULL REFERENCES suppliers(id), invoice_number TEXT NOT NULL, amount_cents INTEGER NOT NULL, creditor_account TEXT NOT NULL, paid_at TEXT NOT NULL);
@@ -30,9 +29,21 @@ export class DemoStore {
       CREATE INDEX IF NOT EXISTS idx_invoices_tenant ON invoices(tenant_id);
       CREATE TABLE IF NOT EXISTS audit_events (id INTEGER PRIMARY KEY AUTOINCREMENT, tenant_id TEXT NOT NULL, invoice_id TEXT, actor TEXT NOT NULL, action TEXT NOT NULL, title TEXT NOT NULL, detail TEXT NOT NULL, created_at TEXT NOT NULL);
     `);
-    if (!this.db.prepare("SELECT 1 FROM suppliers LIMIT 1").get()) this.db.transaction(() => this.seed())();
+    if (!this.db.prepare("SELECT 1 FROM suppliers LIMIT 1").get()) this.transaction(() => this.seed());
   }
   close(): void { this.db.close(); }
+  private transaction<T>(operation: () => T): T {
+    this.db.exec("BEGIN");
+    try {
+      const result = operation();
+      this.db.exec("COMMIT");
+      return result;
+    } catch (error) {
+      // A RAISE(ROLLBACK) trigger or a failed COMMIT may already have ended the transaction; keep the original error.
+      if (this.db.isTransaction) this.db.exec("ROLLBACK");
+      throw error;
+    }
+  }
   private history(supplierId: string): History[] { return this.db.prepare("SELECT creditor_account,amount_cents,invoice_number FROM payments_history WHERE supplier_id=?").all(supplierId) as History[]; }
   private auditEvent(invoiceId: string | null, actor: string, action: string, title: string, detail: string): void {
     this.db.prepare("INSERT INTO audit_events (tenant_id,invoice_id,actor,action,title,detail,created_at) VALUES (?,?,?,?,?,?,?)").run(TENANT, invoiceId, actor, action, title, detail, now());
@@ -49,10 +60,10 @@ export class DemoStore {
     this.auditEvent(null, "demo-seed", "DEMO_IMPORT", "Synthetic Jinius invoice batch imported", "4 synthetic invoices assessed using local rule engine; no Jinius API call");
   }
   reset(): void {
-    this.db.transaction(() => {
+    this.transaction(() => {
       this.db.exec("DELETE FROM audit_events; DELETE FROM invoices; DELETE FROM payments_history; DELETE FROM suppliers;");
       this.seed();
-    })();
+    });
   }
   private insertAssessment(id: string, supplierId: string, invoiceNumber: string, amountCents: number, account: string, date: string, source: string): void {
     const history = this.history(supplierId);
@@ -61,11 +72,11 @@ export class DemoStore {
     this.auditEvent(id, "trustpay-risk-engine", "ASSESSED", `Payment risk assessed · ${assessment.level}`, `${id} · ${assessment.score}/100 · ${assessment.reason}`);
   }
   createAssessment(item: AssessmentInput): Invoice {
-    this.db.transaction(() => {
+    this.transaction(() => {
       if (!this.db.prepare("SELECT 1 FROM suppliers WHERE id=? AND tenant_id=?").get(item.supplier_id, TENANT)) throw new Error("Unknown demo supplier");
       if (this.db.prepare("SELECT 1 FROM invoices WHERE id=?").get(item.id)) throw new Error("An assessment with this ID already exists");
       this.insertAssessment(item.id, item.supplier_id, item.invoice_number, item.amount_cents, item.creditor_account, item.invoice_date, "manual_demo_submission");
-    })();
+    });
     return this.invoice(item.id);
   }
   private present(row: Row): Invoice {
@@ -91,9 +102,9 @@ export class DemoStore {
       return { id: row.id, name: row.name, short: row.short_name, payment_count: history.length, last4: mask(canonical(history.map((item) => item.creditor_account))), historical_median_eur: median === null ? null : Number(pythonFixed2(median / 100)) };
     });
   }
-  audit(): AuditEvent[] { return this.db.prepare("SELECT * FROM audit_events WHERE tenant_id=? ORDER BY id DESC LIMIT 200").all(TENANT) as AuditEvent[]; }
+  audit(): AuditEvent[] { return this.db.prepare("SELECT * FROM audit_events WHERE tenant_id=? ORDER BY id DESC LIMIT 200").all(TENANT) as unknown as AuditEvent[]; }
   transition(id: string, action: "verify" | "approve" | "hold", note: string): Invoice {
-    this.db.transaction(() => {
+    this.transaction(() => {
       const row = this.db.prepare("SELECT * FROM invoices WHERE id=? AND tenant_id=?").get(id, TENANT) as Row | undefined;
       if (!row) throw new Error("Invoice not found");
       let actor: string;
@@ -123,7 +134,7 @@ export class DemoStore {
         detail = `${id} · further investigation required`;
       }
       this.auditEvent(id, actor, action.toUpperCase(), title, detail);
-    })();
+    });
     return this.invoice(id);
   }
 }

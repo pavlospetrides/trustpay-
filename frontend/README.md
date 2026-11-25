@@ -2,6 +2,8 @@
 
 This directory is the complete Node.js and TypeScript application. Next.js serves the Crystal interface and native Route Handlers from one process.
 
+Requires Node.js 24.11.1 or newer within the 24.x line. The local demo uses the built-in `node:sqlite` module. On Windows, stop `npm run dev` before reinstalling dependencies with `npm ci` so installed PDF binaries are not locked.
+
 ```bash
 npm ci
 npm run dev
