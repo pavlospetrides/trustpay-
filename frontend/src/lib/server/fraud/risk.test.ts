@@ -54,6 +54,7 @@ describe("Python risk engine parity", () => {
     expect(identityMismatches({ vat_number: null, registration_number: "HE1" }, { vat_number: "CY1", registration_number: null })).toEqual([]);
     expect(identityMismatches({ vat_number: "CY99999999Z", supplier_name: "Other Trading" }, { vat_number: "CY10012345A", supplier_name: "Aegean Supplies Ltd" })).toEqual(["vat_number", "supplier_name"]);
     expect(identityMismatches({ vat_number: "CY10012345A", registration_number: "HE 12345", supplier_name: "Αιγαίο Προμήθειες Λτδ" }, { vat_number: "GB10012345A", registration_number: "12345", supplier_name: "ΑΙΓΑΙΟ ΠΡΟΜΗΘΕΙΕΣ ΛΤΔ" })).toEqual(["vat_number"]);
+    expect(identityMismatches({ registration_number: "AB12345" }, { registration_number: "12345" })).toEqual(["registration_number"]);
     expect(identityMismatches({ supplier_name: "Aegean Co Supplies Ltd" }, { supplier_name: "Aegean Supplies" })).toEqual(["supplier_name"]);
     const vat = assessPayment({ ...base, identityMismatches: ["vat_number"] });
     expect(vat).toMatchObject({ score: 50, recommended_status: "needs_review" });

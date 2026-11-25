@@ -41,13 +41,14 @@ export const VERIFIED_ACCOUNT_TRUST_DAYS = 90;
 const TRAILING_LEGAL_FORM = /(\s+(limited|ltd|llc|plc|inc|s\.?a|gmbh|co|company|corp|corporation)\.?)+$/u;
 // Compatibility-decompose and drop accents (Greek tonos, Latin diacritics), then case-fold and keep letters and digits.
 const plain = (value: string) => casefold(value.normalize("NFKD").replace(/\p{M}/gu, "")).replace(/[^\p{L}\p{N}]/gu, "");
-const countryPrefix = (value: string) => /^[a-z]{2}(?=\d)/.exec(value)?.[0] ?? "";
+// Prefixes that may be left out: a VAT number's country code, or the Cyprus registry's "HE" for companies.
+const omissiblePrefix = (field: IdentityField, value: string) => (field === "vat_number" ? /^[a-z]{2}(?=\d)/ : /^he(?=\d)/).exec(value)?.[0] ?? "";
 function sameIdentity(field: IdentityField, left: string, right: string): boolean {
   if (field === "supplier_name") return plain(casefold(left.normalize("NFKC")).replace(TRAILING_LEGAL_FORM, "")) === plain(casefold(right.normalize("NFKC")).replace(TRAILING_LEGAL_FORM, ""));
   const [a, b] = [plain(left), plain(right)];
   if (a === b) return true;
   // A prefix written on one side only may be omitted (CY10012345A vs 10012345A, HE12345 vs 12345); two different prefixes never match (CY vs GB).
-  const [pa, pb] = [countryPrefix(a), countryPrefix(b)];
+  const [pa, pb] = [omissiblePrefix(field, a), omissiblePrefix(field, b)];
   return !(pa && pb) && a.slice(pa.length) === b.slice(pb.length);
 }
 
