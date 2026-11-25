@@ -26,7 +26,7 @@ export default function Audit() {
     finally { setBusy(false); }
   }
   return <>
-    <PageHeading title="Audit trail" description={authConfigured ? "Organization-scoped actions recorded by FastAPI." : "Persistent local events from FastAPI. Demo actor labels are not authenticated identities."} action={authConfigured ? undefined : <button className="button secondary" onClick={() => setConfirm(true)}>Reset local demo</button>}/>
+    <PageHeading title="Audit trail" description={authConfigured ? "Organization-scoped actions recorded by the server." : "Persistent local events from the server. Demo actor labels are not authenticated identities."} action={authConfigured ? undefined : <button className="button secondary" onClick={() => setConfirm(true)}>Reset local demo</button>}/>
     <Panel className="filters audit-filters">
       <label>Search events<input type="search" value={search} onChange={event => setSearch(event.target.value)} placeholder="Actor, invoice, or action"/></label>
       <label>Action<select value={action} onChange={event => setAction(event.target.value)}><option value="all">All actions</option>{[...new Set((feed.data || []).map(event => event.action))].map(value => <option key={value}>{value}</option>)}</select></label>

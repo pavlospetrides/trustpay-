@@ -84,7 +84,7 @@ export default function InvoiceIntakeReview() {
   const missing = missingReviewFields(fields);
   return <>
     <Link className="back-link" href="/app/payments/new"><ArrowLeft size={17}/> New assessment</Link>
-    <PageHeading title="Review extracted invoice" description="Confirm every field before the Python risk engine evaluates this invoice."/>
+    <PageHeading title="Review extracted invoice" description="Confirm every field before the server risk engine evaluates this invoice."/>
     <div className="intake-review-grid"><Panel className="intake-review-panel">
       <div className="section-head"><div><span className="overline">EXTRACTION / {intake.method === "openai_vision" ? "VISION MODEL" : "LOCAL PDF TEXT"}</span><h2>Proposed invoice fields</h2><p>Highlighted fields need your attention. An extraction is never an approval.</p></div><FileCheck2 size={25} aria-hidden="true"/></div>
       {intake.status === "provider_unavailable" && <div className="notice danger">Visual extraction is unavailable. Enter the fields manually or retry when the provider is configured.</div>}

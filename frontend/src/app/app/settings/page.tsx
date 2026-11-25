@@ -27,7 +27,7 @@ export default function Settings() {
         </div>
         <p className="settings-note">Current appearance: <strong>{theme}</strong>. The choice is stored only in this browser.</p>
       </Panel>
-      <Panel><div className="section-head"><div><h2>Demo environment</h2><p>Reported by the FastAPI health endpoint.</p></div></div>
+      <Panel><div className="section-head"><div><h2>Demo environment</h2><p>Reported by the server health endpoint.</p></div></div>
         {health.loading ? <Loading/> : health.error ? <ErrorState message={health.error} retry={health.refresh}/> : <dl className="settings-facts">
           <div><dt>Mode</dt><dd>{health.data?.mode}</dd></div>
           <div><dt>Risk engine</dt><dd>{health.data?.risk_model}</dd></div>

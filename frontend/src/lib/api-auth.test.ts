@@ -15,7 +15,7 @@ describe("authenticated API transport", () => {
     vi.stubGlobal("localStorage", { getItem: () => "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa" });
   });
 
-  it("forwards the user token and selected organization to FastAPI", async () => {
+  it("forwards the user token and selected organization to the API", async () => {
     getSession.mockResolvedValue({ data: { session: { access_token: "user-token" } }, error: null });
     const fetcher = vi.fn(async () => new Response("[]", { status: 200 }));
     vi.stubGlobal("fetch", fetcher);

@@ -17,7 +17,7 @@ async function rawRequest(path:string, init?:RequestInit):Promise<Response> {
   let response:Response;
   const headers = await authHeaders(init?.body);
   try { response = await fetch(`/api${path}`, { cache:"no-store", ...init, headers:{...headers, ...init?.headers} }); }
-  catch { throw new ApiError("Cannot reach the TrustPay API. Check the npm run dev terminal for FastAPI errors, then retry.", 0); }
+  catch { throw new ApiError("Cannot reach the TrustPay API. Check the npm run dev terminal for server errors, then retry.", 0); }
   if (!response.ok) { const data = await response.json().catch(() => ({})); const detail = data.detail; throw new ApiError(typeof detail === "string" ? detail : Array.isArray(detail) ? detail.map((item:{msg?:string})=>item.msg).join("; ") : `Request failed (${response.status})`, response.status); }
   return response;
 }
@@ -61,7 +61,7 @@ export const api = {
   documents:(id:string)=>request<{id:string;content_type:string;size_bytes:number;created_at:string}[]>(`/v1/invoices/${encodeURIComponent(id)}/documents`),
   uploadDocument:(id:string,file:File)=>{const form=new FormData();form.set("file",file);return request<{id:string}>(`/v1/invoices/${encodeURIComponent(id)}/documents`,{method:"POST",body:form});},
   downloadDocument:async(id:string,documentId:string)=>{const response=await rawRequest(`/v1/invoices/${encodeURIComponent(id)}/documents/${encodeURIComponent(documentId)}`);return response.blob();},
-  suppliers:()=>request<Supplier[]>("/v1/suppliers"), audit:()=>request<AuditEvent[]>("/v1/audit"), integrations:()=>request<Integrations>("/v1/integrations"), syncJinius:()=>post<SyncRun>("/v1/integrations/jinius/sync"),
+  suppliers:()=>request<Supplier[]>("/v1/suppliers"), audit:()=>request<AuditEvent[]>("/v1/audit"), integrations:()=>request<Integrations>("/v1/integrations"), syncJinius:()=>post<SyncRun>("/v1/integrations/jinius/sync"), resolveImport:(externalId:string,revision:string,supplierId:string)=>post<Invoice>(`/v1/integrations/jinius/imports/${encodeURIComponent(externalId)}/${encodeURIComponent(revision)}/resolve`,{supplier_id:supplierId}),
   assess:(body:AssessmentInput)=>post<Invoice>("/v1/invoices/assess",body), verify:(id:string,note:string)=>post<Invoice>(`/v1/invoices/${encodeURIComponent(id)}/verify`,{evidence_note:note}),
   approve:(id:string)=>post<Invoice>(`/v1/invoices/${encodeURIComponent(id)}/approve`), hold:(id:string)=>post<Invoice>(`/v1/invoices/${encodeURIComponent(id)}/hold`), reset:()=>post<{reset:boolean}>("/v1/demo/reset")
 };

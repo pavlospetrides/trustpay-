@@ -1,21 +1,21 @@
-# Existing TrustPay MVP FastAPI Contract (reference for Codex)
+# TrustPay API contract
 
-Source of truth: `app/main.py` and `app/database.py` in the actual existing repo.
-
-PostgreSQL mode also uses `app/postgres_store.py`. Protected endpoints require `Authorization: Bearer <Supabase access token>` and, for a user in multiple organizations, `X-Organization-Id: <membership UUID>`. The backend validates the token with Supabase Auth and verifies active organization membership on every request. SQLite mode keeps its existing unauthenticated synthetic contract.
+Source of truth: the Next.js route handler `frontend/src/lib/server/api/handler.ts`, with `database/demo-store.ts` (SQLite demo) and `database/postgres-store.ts` (PostgreSQL mode). `frontend/src/lib/server/parity/python-parity.test.ts` pins these responses to those of the former Python backend. Protected endpoints require `Authorization: Bearer <Supabase access token>` and, for a user in multiple organizations, `X-Organization-Id: <membership UUID>`. The backend validates the token with Supabase Auth and verifies active organization membership on every request. SQLite mode keeps its existing unauthenticated synthetic contract.
 
 | Method | Path | Notes |
 |---|---|---|
 | GET | `/api/health` | synthetic-local-demo, no bank transfers |
 | GET | `/api/v1/invoices` | invoices with masked accounts, risk, signals, workflow |
 | GET | `/api/v1/invoices/{id}` | invoice detail |
-| POST | `/api/v1/invoices/assess` | creates assessment using the same Python risk engine |
+| POST | `/api/v1/invoices/assess` | creates assessment using the same deterministic TypeScript risk engine |
 | POST | `/api/v1/invoices/{id}/verify` | requires 12+ chars evidence note; simulated verification |
 | POST | `/api/v1/invoices/{id}/approve` | server-controlled simulated internal approval |
 | POST | `/api/v1/invoices/{id}/hold` | hold, if status permits |
 | GET | `/api/v1/suppliers` | summary supplier data |
 | GET | `/api/v1/audit` | persistent local audit events |
-| GET | `/api/v1/integrations` | explicit Jinius mock/disconnected status |
+| GET | `/api/v1/integrations` | explicit Jinius mock/disconnected status; in PostgreSQL mode, last sync run and rows waiting for human review |
+| POST | `/api/v1/integrations/jinius/sync` | owner/admin only, PostgreSQL mode; imports the synthetic Jinius demo feed once per record |
+| POST | `/api/v1/integrations/jinius/imports/{external_id}/{revision}/resolve` | owner/admin/analyst, PostgreSQL mode; body `{supplier_id}` assigns an existing supplier to an unknown-supplier import and assesses it once |
 | GET | `/api/v1/me/organizations` | list active organizations for the signed-in user in PostgreSQL mode |
 | GET | `/api/v1/invoices/{id}/documents` | list private invoice document metadata |
 | POST | `/api/v1/invoices/{id}/documents` | authorized PDF/PNG/JPEG upload, 10 MB maximum |
