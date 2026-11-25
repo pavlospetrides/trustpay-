@@ -66,12 +66,12 @@ export class DemoStore {
       this.seed();
     });
   }
-  private openInvoiceNumbers(supplierId: string): string[] {
-    return (this.db.prepare("SELECT invoice_number FROM invoices WHERE tenant_id=? AND supplier_id=? AND status<>'rejected'").all(TENANT, supplierId) as { invoice_number: string }[]).map((row) => row.invoice_number);
+  private invoiceNumbers(supplierId: string, rejected: boolean): string[] {
+    return (this.db.prepare(`SELECT invoice_number FROM invoices WHERE tenant_id=? AND supplier_id=? AND status${rejected ? "=" : "<>"}'rejected'`).all(TENANT, supplierId) as { invoice_number: string }[]).map((row) => row.invoice_number);
   }
   private insertAssessment(id: string, supplierId: string, invoiceNumber: string, amountCents: number, account: string, date: string, source: string): void {
     const history = this.history(supplierId);
-    const assessment = assessPayment({ invoiceNumber, currentAccount: account, amountCents, previousAccounts: history.map((row) => row.creditor_account), previousPaidAmountsCents: history.map((row) => row.amount_cents), previouslyPaidInvoices: history.map((row) => row.invoice_number), otherOpenInvoices: this.openInvoiceNumbers(supplierId) });
+    const assessment = assessPayment({ invoiceNumber, currentAccount: account, amountCents, previousAccounts: history.map((row) => row.creditor_account), previousPaidAmountsCents: history.map((row) => row.amount_cents), previouslyPaidInvoices: history.map((row) => row.invoice_number), otherOpenInvoices: this.invoiceNumbers(supplierId, false), rejectedInvoices: this.invoiceNumbers(supplierId, true) });
     this.db.prepare("INSERT INTO invoices (id,tenant_id,supplier_id,invoice_number,amount_cents,creditor_account,invoice_date,source,risk_score,risk_level,risk_kind,reason,signals_json,status,verified_by,verified_note,approved_by,updated_at) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)").run(id, TENANT, supplierId, invoiceNumber, amountCents, account, date, source, assessment.score, assessment.level, assessment.kind, assessment.reason, JSON.stringify(assessment.signals), assessment.recommended_status, null, null, null, now());
     this.auditEvent(id, "trustpay-risk-engine", "ASSESSED", `Payment risk assessed · ${assessment.level}`, `${id} · ${assessment.score}/100 · ${assessment.reason}`);
   }
@@ -120,7 +120,8 @@ export class DemoStore {
         if (row.verified_by) throw new Error("Independent verification has already been recorded");
         if (note.trim().length < 12) throw new Error("Independent verification must include an evidence note (12+ characters)");
         actor = "risk.analyst@demo.local";
-        this.db.prepare("UPDATE invoices SET verified_by=?,verified_note=?,status='ready',updated_at=? WHERE id=?").run(actor, note.trim(), now(), id);
+        // Verifying a held invoice records the evidence but keeps the hold until someone releases it.
+        this.db.prepare("UPDATE invoices SET verified_by=?,verified_note=?,status=?,updated_at=? WHERE id=?").run(actor, note.trim(), row.status === "hold" ? "hold" : "ready", now(), id);
         title = "Independent callback recorded · simulated";
         detail = `${id} · analyst supplied evidence: ${note.trim()}`;
       } else if (action === "approve") {
@@ -128,6 +129,7 @@ export class DemoStore {
         if (row.risk_score >= 40 && !row.verified_by) throw new Error("Risky payment requires independent verification before approval");
         actor = "finance.manager@demo.local";
         if (row.verified_by === actor) throw new Error("Maker-checker separation failed");
+        if (this.db.prepare("SELECT 1 FROM invoices WHERE tenant_id=? AND supplier_id=? AND lower(invoice_number)=lower(?) AND status='approved' AND id<>?").get(TENANT, row.supplier_id, row.invoice_number, id)) throw new Error("Invoice cannot be approved because another copy is already approved");
         this.db.prepare("UPDATE invoices SET status='approved',approved_by=?,updated_at=? WHERE id=?").run(actor, now(), id);
         title = "Internal approval recorded — NO TRANSFER";
         detail = `${id} · finance manager approved demo decision; no bank payment initiated`;
