@@ -1,5 +1,14 @@
 ﻿# Team status — 25 November 2026
 
+## Verified-account trust and supplier identity checks (#32, PR pending)
+
+From the financial-controls review, items 4 and 7.
+- **Verified accounts:** a bank account independently verified on another invoice drops from +75 to +25 ("verified on <date>") for later invoices. That invoice must be approved and still approved, within 90 days, at least the new amount, and verified by someone other than the new invoice's maker and approver. Approval re-checks this under the supplier lock; rejecting the verifying invoice (which also takes the lock) withdraws the trust.
+- **Supplier identity:** uploaded invoices compare extracted VAT and registration numbers with the supplier record (+50 on mismatch, verification required) and the name (+20). The values read from the document are kept through review, so clearing them does not hide a mismatch. A VAT country code may be omitted; the HE registry prefix only for suppliers with country CY.
+- **Account input:** manual accounts accept only letters, digits, dashes and the whitespace both stores strip.
+
+No migration. Follow-ups: identity checks for Jinius and manual invoices once they carry these fields; the pre-existing dash handling difference between the demo store and the PostgreSQL IBAN check.
+
 ## Duplicate approvals, release hold and reject (#30, PR pending)
 
 From the financial-controls review. A second non-rejected copy of a supplier invoice number is blocked as a duplicate when assessed. Approval re-checks under a supplier lock, so two copies cannot both be approved, including copies created earlier. A copy rejected earlier needs independent verification. Held invoices can be released (not by their creator); verifying a held invoice keeps the hold. Reject needs a reason, is final, and also withdraws an approval before payment. **The hosted development project needs `supabase/migrations/20261126000100_invoice_rejection.sql` applied by hand before reject works there.** Follow-ups: Jinius revisions that change the invoice number, invoice-number normalisation (review item 6), and typed 403/409 errors.
