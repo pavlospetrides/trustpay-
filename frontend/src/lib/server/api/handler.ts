@@ -10,6 +10,7 @@ import { reviewedInvoiceSchema } from "../invoices/extraction";
 import { JiniusSync } from "../jinius/sync";
 import { authenticateRequest } from "../auth/request";
 import { StatusError } from "./status-error";
+import { TRANSITION_ACTIONS, type TransitionAction } from "../approvals/policy";
 
 export type ApiContext =
   | { mode: "sqlite"; demo: DemoStore }
@@ -25,8 +26,9 @@ const text = (min: number, max: number) => z.string().min(min).max(max).refine((
 const assessmentInput = z.strictObject({ id: z.string().min(3).max(64).regex(/^[A-Za-z0-9_-]+$/), supplier_id: text(3, 32), invoice_number: text(2, 70), amount_cents: z.number().int().positive().max(100_000_000_000), creditor_account: text(4, 64), invoice_date: isoDate });
 const reviewInput = z.strictObject({ fields: reviewedInvoiceSchema, supplier_id: z.string().nullable(), create_new_supplier: z.boolean() });
 const verifyInput = z.strictObject({ evidence_note: text(12, 500) });
+const rejectInput = z.strictObject({ reason: text(12, 500) });
 const resolveInput = z.strictObject({ supplier_id: text(1, 32) });
-const invoiceOutput = z.object({ id: z.string(), supplier_id: z.string(), amount_cents: z.number().int(), risk: z.number().int().min(0).max(100), iban: z.string().startsWith("••••"), status: z.enum(["ready", "needs_review", "blocked", "hold", "approved"]), signals: z.array(z.object({ code: z.string(), explanation: z.string() }).passthrough()) }).passthrough();
+const invoiceOutput = z.object({ id: z.string(), supplier_id: z.string(), amount_cents: z.number().int(), risk: z.number().int().min(0).max(100), iban: z.string().startsWith("••••"), status: z.enum(["ready", "needs_review", "blocked", "hold", "approved", "rejected"]), signals: z.array(z.object({ code: z.string(), explanation: z.string() }).passthrough()) }).passthrough();
 const invoiceJson = (value: Invoice, status = 200) => json(invoiceOutput.parse(value), status);
 
 function errorResponse(error: unknown, mode: ApiContext["mode"]): Response {
@@ -43,7 +45,7 @@ function errorResponse(error: unknown, mode: ApiContext["mode"]): Response {
   if (/limit reached|retry limit/.test(message)) return json({ detail: message }, 429);
   if (/not found|Unknown demo supplier|Supplier not found|Assessment not found/.test(message)) return json({ detail: message }, 404);
   if (/already exists|Idempotency key already used/.test(message)) return json({ detail: message }, 409);
-  if (/Role|Only organization owners|cannot independently|Maker-checker|needs independent verification|requires independent verification|already been recorded|not ready|cannot be verified|cannot be placed|cannot be approved|unavailable in PostgreSQL mode|requires PostgreSQL mode/.test(message)) return json({ detail: message }, mode === "sqlite" ? 409 : 403);
+  if (/Role|Only organization owners|cannot independently|Maker-checker|needs independent verification|requires independent verification|already been recorded|not ready|cannot be verified|cannot be placed|cannot be approved|cannot be released|are final|unavailable in PostgreSQL mode|requires PostgreSQL mode/.test(message)) return json({ detail: message }, mode === "sqlite" ? 409 : 403);
   if (/Invalid|valid|must|Only|Select|Review|cannot|is required|are required|evidence reference|already been reviewed|Unknown assessment|could not be read|unsupported|exceeds|outside|unknown|malformed/.test(message)) return json({ detail: message }, 422);
   console.error(`TrustPay API error: ${error instanceof Error ? error.constructor.name : "UnknownError"}`);
   return json({ detail: "Internal server error" }, 500);
@@ -106,9 +108,9 @@ export async function handleApiRequest(request: Request, segments: string[], con
       if (path.length === 3) return json(history);
       if (path.length === 4) return history.find((item) => item.id === uuid.parse(path[3])) ? json(history.find((item) => item.id === path[3])) : json({ detail: "Assessment not found" }, 404);
     }
-    if (path.length === 3 && path[0] === "invoices" && ["verify", "approve", "hold"].includes(path[2]) && method === "POST") {
-      const action = path[2] as "verify" | "approve" | "hold";
-      const note = action === "verify" ? verifyInput.parse(await request.json()).evidence_note : "";
+    if (path.length === 3 && path[0] === "invoices" && (TRANSITION_ACTIONS as readonly string[]).includes(path[2]) && method === "POST") {
+      const action = path[2] as TransitionAction;
+      const note = action === "verify" ? verifyInput.parse(await request.json()).evidence_note : action === "reject" ? rejectInput.parse(await request.json()).reason : "";
       return invoiceJson(context.mode === "sqlite" ? context.demo.transition(path[1], action, note) : await context.pg.transition(path[1], action, note, principal!));
     }
     if (path.length >= 3 && path[0] === "invoices" && path[2] === "documents") {

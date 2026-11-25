@@ -1,5 +1,9 @@
 ﻿# Team status — 25 November 2026
 
+## Duplicate approvals, release hold and reject (#30, PR pending)
+
+From the financial-controls review. A second non-rejected copy of a supplier invoice number is blocked as a duplicate when assessed. Approval re-checks under a supplier lock, so two copies cannot both be approved, including copies created earlier. A copy rejected earlier needs independent verification. Held invoices can be released (not by their creator); verifying a held invoice keeps the hold. Reject needs a reason, is final, and also withdraws an approval before payment. **The hosted development project needs `supabase/migrations/20261126000100_invoice_rejection.sql` applied by hand before reject works there.** Follow-ups: Jinius revisions that change the invoice number, invoice-number normalisation (review item 6), and typed 403/409 errors.
+
 ## Windows installation fix (25 November 2026, #25)
 
 At main commit `4eb62f7`, the local SQLite dependency falls back to native compilation on Windows Node.js 24.11.1. It fails without Windows SDK 10.0.26100.0. [PR #25](https://github.com/pavlospetrides/trustpay-/pull/25) moves the synthetic local store to the built-in `node:sqlite` module and removes the native SQLite package. It also adds a Windows CI install job that runs without Python and with node-gyp's Python fallback disabled. The PostgreSQL and Supabase paths are unchanged. Node 24.11.1 or newer within 24.x is required.

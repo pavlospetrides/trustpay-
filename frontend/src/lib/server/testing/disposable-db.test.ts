@@ -28,10 +28,26 @@ describe.skipIf(!disposableUrl)("disposable Supabase database", () => {
     expect((await call("POST", `${path}/approve`, "maker")).status).toBe(403);
     expect((await call("POST", `${path}/approve`, "approver")).status).toBe(403);
     expect((await call("POST", `${path}/verify`, "verifier", { evidence_note: "Synthetic independent callback record" })).status).toBe(200);
+    expect((await call("POST", `${path}/hold`, "verifier")).body.status).toBe("hold");
+    expect((await call("POST", `${path}/release`, "maker")).status).toBe(403);
+    expect((await call("POST", `${path}/release`, "verifier")).body.status).toBe("ready");
     const approved = await call("POST", `${path}/approve`, "approver");
     expect([approved.status, approved.body.status]).toEqual([200, "approved"]);
     const actions = new Set((await call("GET", "/api/v1/audit", "maker")).body.map((event: { action: string }) => event.action));
     for (const action of ["ASSESSED", "VERIFY", "APPROVE"]) expect(actions).toContain(action);
+
+    // A second copy of the approved invoice (different ID, same supplier invoice number) is a hard duplicate.
+    const copy = await call("POST", "/api/v1/invoices/assess", "maker", { id: `${id}-COPY`, supplier_id: "TEST-SUP", invoice_number: "new-001", amount_cents: 842000, creditor_account: syntheticIban(99), invoice_date: "2026-11-23" });
+    expect([copy.status, copy.body.risk, copy.body.status]).toEqual([201, 100, "blocked"]);
+    // Even if a copy slipped through before screening existed, approval re-checks and refuses it.
+    await sql("update public.invoices set status='ready', verified_by=$1 where public_id=$2", [verifier, `${id}-COPY`]);
+    expect((await call("POST", `/api/v1/invoices/${id}-COPY/approve`, "approver")).status).toBe(403);
+    // Withdrawing the approval rejects the invoice, records the decision, and is final.
+    expect((await call("POST", `${path}/reject`, "approver", { reason: "short" })).status).toBe(422);
+    const rejected = await call("POST", `${path}/reject`, "approver", { reason: "Synthetic fraud report from supplier" });
+    expect([rejected.status, rejected.body.status]).toEqual([200, "rejected"]);
+    expect((await call("POST", `${path}/hold`, "verifier")).status).toBe(403);
+    expect((await sql("select decision,reason from public.payment_approvals a join public.invoices i on i.id=a.invoice_id where i.public_id=$1 and a.decision='rejected'", [id]))).toEqual([{ decision: "rejected", reason: "Synthetic fraud report from supplier" }]);
   });
 
   it("takes a synthetic PDF through intake, review, risk and approval", async () => {
@@ -131,7 +147,7 @@ describe.skipIf(!disposableUrl)("disposable Supabase database", () => {
     expect([bRun.records_created, bRun.records_needs_review, bRun.records_skipped]).toEqual([0, 4, 0]);
     expect((await call("GET", "/api/v1/integrations", "owner")).body.jinius.needs_review_count).toBe(3);
 
-    // Missing/invalid IBAN goes to human review; a new revision is a new, separately assessed invoice.
+    // Missing/invalid IBAN goes to human review; a new revision of an open invoice is a blocked duplicate (#30).
     const principal = { userId: owner, organizationId: orgA, role: "owner" };
     const base = demoSource()[0];
     const listed = apiClient(tokens, () => [{ ...base, id: "INV-9001", creditor_account: "" }, { ...base, id: "INV-9002", creditor_account: "NOT-AN-IBAN" }, { ...base, revision: "2" }]);
@@ -139,7 +155,7 @@ describe.skipIf(!disposableUrl)("disposable Supabase database", () => {
     expect([result.records_created, result.records_needs_review]).toEqual([1, 2]);
     const reasons = Object.fromEntries((await listed.jinius.integrations(principal)).jinius.needs_review!.map((row) => [row.external_id, row.reason]));
     expect([reasons["INV-9001"], reasons["INV-9002"]]).toEqual(["Invoice has no payment account", "Payment account is not a valid IBAN"]);
-    expect((await pg.invoice("JIN-INV-2409-r2", principal)).risk).toBe(75);
+    expect([(await pg.invoice("JIN-INV-2409-r2", principal)).risk, (await pg.invoice("JIN-INV-2409-r2", principal)).status]).toEqual([100, "blocked"]);
 
     // A run that never reached its final write is closed by the next sync instead of showing "Running" forever.
     const stale = (await sql(`insert into public.sync_runs(organization_id,connection_id,status,started_at) select organization_id,id,'running',now()-interval '1 hour'

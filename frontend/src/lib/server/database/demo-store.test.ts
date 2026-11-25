@@ -93,4 +93,51 @@ describe("synthetic local demo persistence", () => {
     expect(reopened.invoice("INV-2409").status).toBe("approved");
     expect(reopened.audit().filter((event) => event.invoice_id === "INV-2409").map((event) => event.action)).toEqual(["APPROVE", "VERIFY", "ASSESSED"]);
   });
+
+  it("blocks a second open copy of a supplier invoice until the first is rejected", () => {
+    const db = store();
+    const copy = (id: string) => db.createAssessment({ id, supplier_id: "SUP-001", invoice_number: "as-2026-200", amount_cents: 842_000, creditor_account: "GB43TRST00000000000099", invoice_date: "2026-11-24" });
+    copy("COPY-1");
+    const second = copy("COPY-2");
+    expect([second.risk, second.status]).toEqual([100, "blocked"]);
+    expect(second.signals.map((signal) => signal.code)).toContain("DUPLICATE_OPEN_INVOICE");
+    db.transition("COPY-1", "reject", "Supplier says this invoice was never issued");
+    db.transition("COPY-2", "reject", "Blocked duplicate copy closed by reviewer");
+    const resubmitted = copy("COPY-3");
+    expect(resubmitted.signals.map((signal) => signal.code)).toEqual(expect.arrayContaining(["PREVIOUSLY_REJECTED_INVOICE"]));
+    expect(resubmitted.signals.map((signal) => signal.code)).not.toContain("DUPLICATE_OPEN_INVOICE");
+    expect(resubmitted.status).toBe("needs_review");
+    expect(() => db.transition("COPY-3", "approve", "")).toThrow();
+  });
+
+  it("refuses to approve a second copy that predates duplicate screening", () => {
+    const db = store();
+    db.createAssessment({ id: "OLD-A", supplier_id: "SUP-003", invoice_number: "KM-7001", amount_cents: 100_000, creditor_account: "SYNTHETIC-A", invoice_date: "2026-11-24" });
+    db.createAssessment({ id: "OLD-B", supplier_id: "SUP-003", invoice_number: "KM-7002", amount_cents: 100_000, creditor_account: "SYNTHETIC-A", invoice_date: "2026-11-24" });
+    const native = new DatabaseSync(db.path);
+    native.prepare("UPDATE invoices SET invoice_number='km-7001', status='ready', verified_by='legacy@demo.local' WHERE id IN ('OLD-A','OLD-B')").run();
+    native.close();
+    expect(db.transition("OLD-A", "approve", "").status).toBe("approved");
+    expect(() => db.transition("OLD-B", "approve", "")).toThrow("another copy is already approved");
+  });
+
+  it("keeps a hold in place when the held invoice is verified", () => {
+    const db = store();
+    db.transition("INV-2409", "hold", "");
+    expect(db.transition("INV-2409", "verify", "Independent callback confirmed").status).toBe("hold");
+    expect(() => db.transition("INV-2409", "approve", "")).toThrow();
+    expect(db.transition("INV-2409", "release", "").status).toBe("ready");
+  });
+
+  it("releases a verified hold for approval and keeps rejection final", () => {
+    const db = store();
+    db.transition("INV-2409", "verify", "Independent callback confirmed");
+    db.transition("INV-2409", "hold", "");
+    expect(db.transition("INV-2409", "release", "").status).toBe("ready");
+    expect(db.transition("INV-2409", "approve", "").status).toBe("approved");
+    expect(() => db.transition("INV-2409", "reject", "too short")).toThrow("at least 12");
+    expect(db.transition("INV-2409", "reject", "Supplier reported the bank change as fraud").status).toBe("rejected");
+    expect(() => db.transition("INV-2409", "approve", "")).toThrow("final");
+    expect(db.audit().filter((event) => event.invoice_id === "INV-2409").map((event) => event.action)).toEqual(["REJECT", "APPROVE", "RELEASE", "HOLD", "VERIFY", "ASSESSED"]);
+  });
 });
