@@ -29,7 +29,7 @@ describe("PostgreSQL approval gate", () => {
       query: async (sql: string, values?: unknown[]) => {
         calls.push({ sql, values });
         // Mirror PostgreSQL: assessment_id reaches the row only if the outer select projects it.
-        if (sql.includes("for update of i")) return { rows: [{ id: "bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb", public_id: "INV-NEXT", organization_id: org, supplier_id: "s1", bank_account_id: "b1", invoice_number: "AS-1", status: "ready", score: 25, verified_by: null, created_by: "maker", ...(sql.includes("a.assessment_id") ? { assessment_id: "asmt-1" } : {}) }] };
+        if (sql.includes("for update of i")) return { rows: [{ id: "bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb", public_id: "INV-NEXT", organization_id: org, supplier_id: "s1", bank_account_id: "b1", invoice_number: "AS-1", total_amount: "8420.00", status: "ready", score: 25, verified_by: null, created_by: "maker", ...(sql.includes("a.assessment_id") ? { assessment_id: "asmt-1" } : {}) }] };
         if (sql.includes("from public.risk_signals")) return { rows: values?.[1] === "asmt-1" ? [{ "?column?": 1 }] : [] };
         if (sql.includes("iban_fingerprint from public.supplier_bank_accounts")) return { rows: [{ iban_fingerprint: "fp" }] };
         if (sql.includes("from public.verification_requests")) return { rows: [{ verified_on: null }] };

@@ -37,18 +37,25 @@ export interface IdentityValues { vat_number?: string | null; registration_numbe
 /** How long an independent account verification lowers the changed-account signal. */
 export const VERIFIED_ACCOUNT_TRUST_DAYS = 90;
 
-const LEGAL_SUFFIXES = /\b(limited|ltd|llc|plc|inc|sa|gmbh|co|company|corp|corporation)\b/g;
-const identityKey = (field: IdentityField, value: string): string => {
-  const plain = casefold(value).replace(field === "supplier_name" ? LEGAL_SUFFIXES : /$^/, "").replace(/[^\p{L}\p{N}]/gu, "");
-  // A VAT number may be written with or without its country prefix (CY10012345A vs 10012345A).
-  return field === "vat_number" ? plain.replace(/^[a-z]{2}(?=\d)/, "") : plain;
-};
+// Only a trailing legal form is dropped from names ("Aegean Co Supplies" keeps its "Co").
+const TRAILING_LEGAL_FORM = /(\s+(limited|ltd|llc|plc|inc|s\.?a|gmbh|co|company|corp|corporation)\.?)+$/u;
+// Compatibility-decompose and drop accents (Greek tonos, Latin diacritics), then case-fold and keep letters and digits.
+const plain = (value: string) => casefold(value.normalize("NFKD").replace(/\p{M}/gu, "")).replace(/[^\p{L}\p{N}]/gu, "");
+const countryPrefix = (value: string) => /^[a-z]{2}(?=\d)/.exec(value)?.[0] ?? "";
+function sameIdentity(field: IdentityField, left: string, right: string): boolean {
+  if (field === "supplier_name") return plain(casefold(left.normalize("NFKC")).replace(TRAILING_LEGAL_FORM, "")) === plain(casefold(right.normalize("NFKC")).replace(TRAILING_LEGAL_FORM, ""));
+  const [a, b] = [plain(left), plain(right)];
+  if (a === b) return true;
+  // A prefix written on one side only may be omitted (CY10012345A vs 10012345A, HE12345 vs 12345); two different prefixes never match (CY vs GB).
+  const [pa, pb] = [countryPrefix(a), countryPrefix(b)];
+  return !(pa && pb) && a.slice(pa.length) === b.slice(pb.length);
+}
 
 /** Fields present on both sides that do not match after normalisation. Missing values are never compared. */
 export function identityMismatches(invoice: IdentityValues, supplier: IdentityValues): IdentityField[] {
   return (["vat_number", "registration_number", "supplier_name"] as const).filter((field) => {
     const left = invoice[field]?.trim(), right = supplier[field]?.trim();
-    return Boolean(left && right) && identityKey(field, left!) !== identityKey(field, right!);
+    return Boolean(left && right) && !sameIdentity(field, left!, right!);
   });
 }
 
@@ -56,7 +63,7 @@ export function identityMismatches(invoice: IdentityValues, supplier: IdentityVa
 const PY_SPACE = "\\t\\n\\v\\f\\r\\x1c-\\x20\\x85\\xa0\\u1680\\u2000-\\u200a\\u2028\\u2029\\u202f\\u205f\\u3000";
 const PY_EDGES = new RegExp(`^[${PY_SPACE}]+|[${PY_SPACE}]+$`, "g"), PY_SPACES = new RegExp(`[${PY_SPACE}]+`, "g");
 const pyStrip = (value: string) => value.replace(PY_EDGES, "");
-const normalizedAccount = (value: string) => value.toUpperCase().replace(PY_SPACES, "");
+export const normalizedAccount = (value: string) => value.toUpperCase().replace(PY_SPACES, "");
 // Python's str.casefold, checked against every code point: upper-then-lower per character gives the same matches
 // (Cherokee folds the other way round but groups the same letters), except ẞ/ß, which casefold turns into "ss",
 // and Unicode 16 letters that Python 3.13 does not know.
