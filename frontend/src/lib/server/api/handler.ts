@@ -21,10 +21,12 @@ const json = (body: unknown, status = 200) => Response.json(body, { status, head
 const missing = () => json({ detail: "Not found" }, 404);
 const uuid = z.uuid();
 const isoDate = z.string().refine((value) => /^\d{4}-\d{2}-\d{2}$/.test(value) && !Number.isNaN(Date.parse(`${value}T00:00:00Z`)) && new Date(`${value}T00:00:00Z`).toISOString().slice(0, 10) === value);
-const assessmentInput = z.strictObject({ id: z.string().min(3).max(64).regex(/^[A-Za-z0-9_-]+$/), supplier_id: z.string().min(3).max(32), invoice_number: z.string().min(2).max(70), amount_cents: z.number().int().positive().max(100_000_000_000), creditor_account: z.string().min(4).max(64), invoice_date: isoDate });
-const reviewInput = z.strictObject({ fields: reviewedInvoiceSchema, supplier_id: z.string().nullable(), create_new_supplier: z.boolean(), reviewed_document: universalDocumentSchema.nullable().optional(), classification_override_reason: z.string().trim().min(20).max(500).nullable().optional(), single_invoice_confirmed: z.boolean().optional() });
-const verifyInput = z.strictObject({ evidence_note: z.string().min(12).max(500) });
-const resolveInput = z.strictObject({ supplier_id: z.string().min(1).max(32) });
+// node:sqlite and PostgreSQL both mishandle NUL in text: SQLite truncates it on read, PostgreSQL rejects it.
+const text = (min: number, max: number) => z.string().min(min).max(max).refine((value) => !value.includes("\u0000"), "Text must not contain NUL characters");
+const assessmentInput = z.strictObject({ id: z.string().min(3).max(64).regex(/^[A-Za-z0-9_-]+$/), supplier_id: text(3, 32), invoice_number: text(2, 70), amount_cents: z.number().int().positive().max(100_000_000_000), creditor_account: text(4, 64), invoice_date: isoDate });
+const reviewInput = z.strictObject({ fields: reviewedInvoiceSchema, supplier_id: z.string().nullable(), create_new_supplier: z.boolean(), reviewed_document: universalDocumentSchema.nullable().optional(), classification_override_reason: text(20, 500).nullable().optional(), single_invoice_confirmed: z.boolean().optional() });
+const verifyInput = z.strictObject({ evidence_note: text(12, 500) });
+const resolveInput = z.strictObject({ supplier_id: text(1, 32) });
 const invoiceOutput = z.object({ id: z.string(), supplier_id: z.string(), amount_cents: z.number().int(), risk: z.number().int().min(0).max(100), iban: z.string().startsWith("••••"), status: z.enum(["ready", "needs_review", "blocked", "hold", "approved"]), signals: z.array(z.object({ code: z.string(), explanation: z.string() }).passthrough()) }).passthrough();
 const invoiceJson = (value: Invoice, status = 200) => json(invoiceOutput.parse(value), status);
 

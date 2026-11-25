@@ -23,6 +23,14 @@ describe("single-server synthetic API", () => {
       expect((await audit.json()).filter((event: { invoice_id: string }) => event.invoice_id === "INV-2409").map((event: { action: string }) => event.action)).toEqual(["APPROVE", "VERIFY", "ASSESSED"]);
     } finally { db.close(); }
   });
+  it("rejects NUL characters in evidence before they reach storage", async () => {
+    const db = new DemoStore(":memory:");
+    try {
+      const response = await handleApiRequest(request("v1/invoices/INV-2409/verify", "POST", { evidence_note: "OK\u0000Synthetic vendor confirmed bank details" }), ["v1", "invoices", "INV-2409", "verify"], { mode: "sqlite", demo: db });
+      expect(response.status).toBe(422);
+      expect(db.invoice("INV-2409").status).toBe("needs_review");
+    } finally { db.close(); }
+  });
   it("rejects malformed manual assessments before persistence", async () => {
     const db = new DemoStore(":memory:");
     try {
