@@ -1,5 +1,9 @@
 ﻿# Team status — 24 November 2026
 
+## Windows installation fix (25 November 2026)
+
+At main commit `4eb62f7`, the local SQLite dependency falls back to native compilation on Windows Node.js 24.11.1 and fails without Windows SDK 10.0.26100.0. Branch `fix/windows-node-sqlite-install` ports the synthetic local store to the built-in `node:sqlite` module, removes the native SQLite package, and adds a Windows CI installation job. The PostgreSQL and Supabase paths remain unchanged. Verification and PR evidence are recorded with the branch.
+
 ## Node.js migration branch
 
 Branch `feat/node-typescript-backend-migration` replaces the active Python/FastAPI server with Next.js 16 Route Handlers and TypeScript server modules. `cd frontend && npm run dev` starts one process at http://127.0.0.1:3000. The local SQLite demo, authenticated Supabase PostgreSQL mode, private Storage, synthetic Jinius sync, deterministic risk rules, and maker-checker approvals remain available. No live Jinius or bank payment initiation exists.
