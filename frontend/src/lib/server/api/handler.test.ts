@@ -50,6 +50,8 @@ describe("single-server synthetic API", () => {
       expect(response.status).toBe(422);
       const tabbed = await handleApiRequest(request("v1/invoices/assess", "POST", { id: "TAB-1", supplier_id: "SUP-001", invoice_number: "AS-TAB", amount_cents: 100, creditor_account: "GB43\tTRST\t000099", invoice_date: "2026-11-24" }), ["v1", "invoices", "assess"], { mode: "sqlite", demo: db });
       expect(tabbed.status).toBe(201);
+      const bom = await handleApiRequest(request("v1/invoices/assess", "POST", { id: "BOM-1", supplier_id: "SUP-001", invoice_number: "AS-BOM", amount_cents: 100, creditor_account: "GB43TRST\ufeff000099", invoice_date: "2026-11-24" }), ["v1", "invoices", "assess"], { mode: "sqlite", demo: db });
+      expect(bom.status).toBe(422);
     } finally { db.close(); }
   });
   it("rejects malformed manual assessments before persistence", async () => {
