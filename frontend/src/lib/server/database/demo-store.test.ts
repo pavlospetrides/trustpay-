@@ -140,4 +140,37 @@ describe("synthetic local demo persistence", () => {
     expect(() => db.transition("INV-2409", "approve", "")).toThrow("final");
     expect(db.audit().filter((event) => event.invoice_id === "INV-2409").map((event) => event.action)).toEqual(["REJECT", "APPROVE", "RELEASE", "HOLD", "VERIFY", "ASSESSED"]);
   });
+
+  it("trusts a verified new account for later invoices until the verifying invoice is rejected", () => {
+    const db = store();
+    const newAccount = db.invoice("INV-2409").iban;
+    expect(db.invoice("INV-2409").risk).toBe(75);
+    db.transition("INV-2409", "verify", "Independent callback confirmed");
+    const native = new DatabaseSync(db.path);
+    const account = (native.prepare("SELECT creditor_account FROM invoices WHERE id='INV-2409'").get() as { creditor_account: string }).creditor_account;
+    const next = (id: string, number: string, cents = 842_000) => db.createAssessment({ id, supplier_id: "SUP-001", invoice_number: number, amount_cents: cents, creditor_account: account, invoice_date: "2026-11-25" });
+    // Verified but not yet approved: no trust.
+    expect(next("NEXT-0", "AS-2026-300").risk).toBe(75);
+    db.transition("INV-2409", "approve", "");
+    const trusted = next("NEXT-1", "AS-2026-301");
+    expect([trusted.risk, trusted.status, trusted.signals[0].code, trusted.iban]).toEqual([25, "ready", "BANK_ACCOUNT_VERIFIED_CHANGE", newAccount]);
+    // Trust covers at most the verified invoice's amount (€8,420); a larger payment needs its own callback.
+    expect(next("NEXT-BIG", "AS-2026-399", 842_001).risk).toBe(75);
+    db.transition("INV-2409", "reject", "Supplier says the bank change was fraud");
+    expect(next("NEXT-2", "AS-2026-302").risk).toBe(75);
+    // NEXT-1 was scored while the trust stood; approval re-checks it and refuses.
+    expect(() => db.transition("NEXT-1", "approve", "")).toThrow("verification it relied on");
+    native.close();
+  });
+
+  it("stops trusting a verification after the 90-day window", () => {
+    const db = store();
+    db.transition("INV-2409", "verify", "Independent callback confirmed");
+    db.transition("INV-2409", "approve", "");
+    const native = new DatabaseSync(db.path);
+    const account = (native.prepare("SELECT creditor_account FROM invoices WHERE id='INV-2409'").get() as { creditor_account: string }).creditor_account;
+    native.prepare("UPDATE audit_events SET created_at=? WHERE invoice_id='INV-2409' AND action='VERIFY'").run(new Date(Date.now() - 91 * 86_400_000).toISOString());
+    native.close();
+    expect(db.createAssessment({ id: "LATE-1", supplier_id: "SUP-001", invoice_number: "AS-2026-401", amount_cents: 842_000, creditor_account: account, invoice_date: "2026-11-25" }).risk).toBe(75);
+  });
 });

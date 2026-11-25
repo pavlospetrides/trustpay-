@@ -1,3 +1,4 @@
+import type { IdentityValues } from "../fraud/risk";
 import { createHash, randomUUID } from "node:crypto";
 import type { Invoice } from "../../types";
 import type { InvoiceIntake } from "../../intake";
@@ -92,10 +93,14 @@ export class IntakeStore {
     writable(principal);
     const reviewed = reviewedInvoiceSchema.parse(fields);
     if (supplierId && createNewSupplier || !supplierId && !createNewSupplier) throw new Error("Select an existing supplier or confirm a new one");
-    const encrypted = this.store.protector.draftCipher().seal({ fields: reviewed, supplier_id: supplierId, create_new_supplier: createNewSupplier }, principal.organizationId, id);
     await transaction(this.pool, async (con) => {
       const row = await this.row(con, id, principal, true);
       if (row.status === "analyzed") throw new Error("Analyzed intake cannot be changed");
+      // Keep what the document itself said about the supplier, so a reviewer's edit cannot erase an identity mismatch.
+      const previous = row.fields_encrypted ? this.store.protector.draftCipher().open(row.fields_encrypted, principal.organizationId, id) : null;
+      const source = (previous?.extracted_identity ?? previous?.fields ?? {}) as Record<string, string | null | undefined>;
+      const extractedIdentity = { supplier_name: source.supplier_name ?? null, vat_number: source.vat_number ?? null, registration_number: source.registration_number ?? null };
+      const encrypted = this.store.protector.draftCipher().seal({ fields: reviewed, supplier_id: supplierId, create_new_supplier: createNewSupplier, extracted_identity: extractedIdentity }, principal.organizationId, id);
       if (supplierId && !(await con.query(`select 1 from public.suppliers where organization_id=$1 and public_id=$2`, [principal.organizationId, supplierId])).rows[0]) throw new Error("Supplier not found");
       await con.query(`update public.invoice_intakes set status='reviewed',fields_encrypted=$1,uncertain_fields='[]'::jsonb,error_code=null,updated_at=now() where organization_id=$2 and id=$3`, [encrypted, principal.organizationId, id]);
       await this.audit(con, principal, id, "INTAKE_REVIEWED", "Extracted fields confirmed by reviewer");
@@ -121,7 +126,7 @@ export class IntakeStore {
       if (!supplier) throw new Error("Supplier not found");
       const [whole, fraction = ""] = fields.total_amount.split(".");
       const amountCents = Number(BigInt(whole) * 100n + BigInt(fraction.padEnd(2, "0")));
-      const invoiceId = await this.store.recordAssessment(con, { id: publicId, supplier_id: supplierId ?? "", invoice_number: fields.invoice_number, amount_cents: amountCents, creditor_account: fields.iban, invoice_date: fields.invoice_date, due_date: fields.due_date }, principal, supplier.id, "uploaded");
+      const invoiceId = await this.store.recordAssessment(con, { id: publicId, supplier_id: supplierId ?? "", invoice_number: fields.invoice_number, amount_cents: amountCents, creditor_account: fields.iban, invoice_date: fields.invoice_date, due_date: fields.due_date, supplier_name: fields.supplier_name, vat_number: fields.vat_number, registration_number: fields.registration_number, extracted_identity: payload.extracted_identity as IdentityValues | undefined }, principal, supplier.id, "uploaded");
       const documentId = row.storage_path.split("/").at(-1)!.split(".")[0];
       await con.query(`insert into public.invoice_documents (id,organization_id,invoice_id,storage_path,content_type,size_bytes,uploaded_by) values ($1,$2,$3,$4,$5,$6,$7) on conflict (storage_path) do nothing`, [documentId, principal.organizationId, invoiceId, row.storage_path, row.content_type, row.size_bytes, row.uploaded_by]);
       const policy = (await con.query(`select explanation from public.risk_assessments where organization_id=$1 and invoice_id=$2 order by assessed_at desc,id desc limit 1`, [principal.organizationId, invoiceId])).rows[0];
