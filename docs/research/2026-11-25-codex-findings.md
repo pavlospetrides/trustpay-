@@ -7,18 +7,18 @@ Codex CLI 0.169.0, read-only, web search on. The merged result is [differentiati
 Both assistants received this brief:
 
 > # Independent research brief: how TrustPay stands apart (research only, no code changes)
-> 
+>
 > Context: TrustPay (this repo, read README.md, docs/PROJECT.md, docs/STATUS.md, docs/jinius-integration-architecture.md, docs/JINIUS_OPEN_DAY.md) is a Bank of Cyprus Fintech Hackathon 7.0 entry (27-29 Nov 2026), targeting the Jinius API prize. Today: payment-risk review before an SME pays a supplier invoice — changed-IBAN / duplicate / amount-anomaly policy rules, maker-checker approvals, audit, AI invoice extraction, synthetic Jinius adapter.
-> 
+>
 > Owner's concern: the idea ("AI catches invoice fraud / changed IBAN before you pay, using Jinius") is the obvious answer any LLM gives when asked "hackathon idea for Jinius / BoC sponsors". Many teams may ship near-identical copies. Keep TrustPay as the base idea, but find the strongest, most original, most useful differentiation.
-> 
+>
 > Do independent research (use the web; cite URLs; mark anything unverified):
 > 1. The hackathon: bochackathon.net — challenges/tracks, sponsor prizes (esp. Jinius), judging criteria, judges/sponsor profiles, past winners (earlier editions) and what won.
 > 2. Jinius: what it actually is (Cyprus e-invoicing / B2B network by Bank of Cyprus?), its real APIs/integrations, product gaps, Cyprus/EU context (ViDA e-invoicing mandate, Cyprus e-invoicing timeline, SEPA Verification of Payee under the Instant Payments Regulation from Oct 2025, APP fraud, BEC fraud stats in Cyprus/EU, PSD3/PSR liability shift).
 > 3. Competitive landscape: what the "obvious" TrustPay clones will look like; existing commercial products (e.g. Trustpair, Eftsure, Nacha-style account validation, VoP providers) and what they don't cover for Cypriot SMEs.
 > 4. Differentiation: generate and then rank options to make TrustPay distinctive to judges and to Jinius/BoC specifically. Think about network effects across the Jinius network, verification that uses the network itself (both buyer and supplier on Jinius), regulatory hooks, supplier-side value, demo theatrics, measurable proof, what copy-cat teams will NOT have time or insight to do in 48h.
 > 5. Pitch: the one-line positioning, the 3-minute demo beat sheet, and the risks/claims to avoid (we must not claim live Jinius access, bank ownership verification or fraud probabilities without evidence).
-> 
+>
 > Deliverable: a concise markdown report (max ~900 words) with: top findings (sourced), ranked differentiation options (score each on originality, usefulness, Jinius fit, 48h feasibility, demo impact), your single recommended "golden recipe", and open questions to confirm with organizers. Do NOT edit any repo files.
 
 ## Independent report
