@@ -115,7 +115,7 @@ export class PgStore {
     const account = this.protector.protect(item.creditor_account);
     if ((await con.query(`select 1 from public.invoices where organization_id=$1 and public_id=$2`, [org, item.id])).rows[0]) throw new Error("Assessment ID already exists");
     // Serialise assessments per supplier so two concurrent copies of one invoice cannot both miss each other.
-    const supplierRecord = (await con.query(`select name as supplier_name,vat_number,registration_number from public.suppliers where organization_id=$1 and id=$2 for update`, [org, supplierId])).rows[0] ?? {};
+    const supplierRecord = (await con.query(`select name as supplier_name,vat_number,registration_number,country from public.suppliers where organization_id=$1 and id=$2 for update`, [org, supplierId])).rows[0] ?? {};
     const accountVerifiedOn = await this.trustedVerification(con, org, supplierId, account.fingerprint, item.amount_cents, [principal.userId]);
     const history = await this.history(con, org, supplierId);
     const numbers = (await con.query(`select invoice_number,status from public.invoices where organization_id=$1 and supplier_id=$2`, [org, supplierId])).rows as { invoice_number: string; status: string }[];

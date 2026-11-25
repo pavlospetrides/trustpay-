@@ -23,7 +23,7 @@ const uuid = z.uuid();
 const isoDate = z.string().refine((value) => /^\d{4}-\d{2}-\d{2}$/.test(value) && !Number.isNaN(Date.parse(`${value}T00:00:00Z`)) && new Date(`${value}T00:00:00Z`).toISOString().slice(0, 10) === value);
 // node:sqlite and PostgreSQL both mishandle NUL in text: SQLite truncates it on read, PostgreSQL rejects it.
 const text = (min: number, max: number) => z.string().min(min).max(max).refine((value) => !value.includes("\u0000"), "Text must not contain NUL characters");
-const assessmentInput = z.strictObject({ id: z.string().min(3).max(64).regex(/^[A-Za-z0-9_-]+$/), supplier_id: text(3, 32), invoice_number: text(2, 70), amount_cents: z.number().int().positive().max(100_000_000_000), creditor_account: text(4, 64).regex(/^[A-Za-z0-9 -]+$/, "Account may contain only letters, digits, spaces and dashes"), invoice_date: isoDate });
+const assessmentInput = z.strictObject({ id: z.string().min(3).max(64).regex(/^[A-Za-z0-9_-]+$/), supplier_id: text(3, 32), invoice_number: text(2, 70), amount_cents: z.number().int().positive().max(100_000_000_000), creditor_account: text(4, 64).regex(/^[A-Za-z0-9\s-]+$/, "Account may contain only letters, digits, whitespace and dashes"), invoice_date: isoDate });
 const reviewInput = z.strictObject({ fields: reviewedInvoiceSchema, supplier_id: z.string().nullable(), create_new_supplier: z.boolean() });
 const verifyInput = z.strictObject({ evidence_note: text(12, 500) });
 const rejectInput = z.strictObject({ reason: text(12, 500) });

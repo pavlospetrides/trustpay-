@@ -32,7 +32,7 @@ export interface RiskInput {
 }
 
 export type IdentityField = "vat_number" | "registration_number" | "supplier_name";
-export interface IdentityValues { vat_number?: string | null; registration_number?: string | null; supplier_name?: string | null }
+export interface IdentityValues { vat_number?: string | null; registration_number?: string | null; supplier_name?: string | null; country?: string | null }
 
 /** How long an independent account verification lowers the changed-account signal. */
 export const VERIFIED_ACCOUNT_TRUST_DAYS = 90;
@@ -41,14 +41,14 @@ export const VERIFIED_ACCOUNT_TRUST_DAYS = 90;
 const TRAILING_LEGAL_FORM = /(\s+(limited|ltd|llc|plc|inc|s\.?a|gmbh|co|company|corp|corporation)\.?)+$/u;
 // Compatibility-decompose and drop accents (Greek tonos, Latin diacritics), then case-fold and keep letters and digits.
 const plain = (value: string) => casefold(value.normalize("NFKD").replace(/\p{M}/gu, "")).replace(/[^\p{L}\p{N}]/gu, "");
-// Prefixes that may be left out: a VAT number's country code, or the Cyprus registry's "HE" for companies.
-const omissiblePrefix = (field: IdentityField, value: string) => (field === "vat_number" ? /^[a-z]{2}(?=\d)/ : /^he(?=\d)/).exec(value)?.[0] ?? "";
-function sameIdentity(field: IdentityField, left: string, right: string): boolean {
+// Prefixes that may be left out: a VAT number's country code, or "HE" for a company in the Cyprus registry.
+const omissiblePrefix = (field: IdentityField, value: string, country: string) => (field === "vat_number" ? /^[a-z]{2}(?=\d)/ : country === "CY" ? /^he(?=\d)/ : /$^/).exec(value)?.[0] ?? "";
+function sameIdentity(field: IdentityField, left: string, right: string, country: string): boolean {
   if (field === "supplier_name") return plain(casefold(left.normalize("NFKC")).replace(TRAILING_LEGAL_FORM, "")) === plain(casefold(right.normalize("NFKC")).replace(TRAILING_LEGAL_FORM, ""));
   const [a, b] = [plain(left), plain(right)];
   if (a === b) return true;
   // A prefix written on one side only may be omitted (CY10012345A vs 10012345A, HE12345 vs 12345); two different prefixes never match (CY vs GB).
-  const [pa, pb] = [omissiblePrefix(field, a), omissiblePrefix(field, b)];
+  const [pa, pb] = [omissiblePrefix(field, a, country), omissiblePrefix(field, b, country)];
   return !(pa && pb) && a.slice(pa.length) === b.slice(pb.length);
 }
 
@@ -56,7 +56,7 @@ function sameIdentity(field: IdentityField, left: string, right: string): boolea
 export function identityMismatches(invoice: IdentityValues, supplier: IdentityValues): IdentityField[] {
   return (["vat_number", "registration_number", "supplier_name"] as const).filter((field) => {
     const left = invoice[field]?.trim(), right = supplier[field]?.trim();
-    return Boolean(left && right) && !sameIdentity(field, left!, right!);
+    return Boolean(left && right) && !sameIdentity(field, left!, right!, (supplier.country ?? "").trim().toUpperCase());
   });
 }
 
