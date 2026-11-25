@@ -30,10 +30,10 @@ export function InvoiceDocuments({ invoiceId }: { invoiceId: string }) {
       setTimeout(() => URL.revokeObjectURL(url), 1000);
     } catch (cause) { setError(cause instanceof Error ? cause.message : "Download failed"); }
   }
-  return <Panel className="invoice-documents"><h2>Private invoice evidence</h2><p>PDF, PNG or JPEG. Up to 10 MB. Access is limited to your organization.</p>
+  return <Panel className="invoice-documents"><h2>Private invoice evidence</h2><p>PDF, PNG, JPEG or WEBP. Up to 10 MB. Access is limited to your organization.</p>
     {feed.loading ? <Loading/> : feed.error ? <ErrorState message={feed.error} retry={feed.refresh}/> :
       feed.data?.length ? <ul>{feed.data.map(document => <li key={document.id}><span>{document.content_type} · {(document.size_bytes / 1024).toFixed(0)} KB</span><button type="button" className="button quiet" onClick={() => void download(document.id)}>Download</button></li>)}</ul> : <p className="muted">No documents attached.</p>}
-    <div className="document-upload"><input type="file" accept="application/pdf,image/png,image/jpeg" aria-label="Choose invoice document" onChange={event => setFile(event.target.files?.[0] || null)}/><button type="button" className="button secondary" disabled={!file || busy} onClick={() => void upload()}>{busy ? "Uploading…" : "Upload document"}</button></div>
+    <div className="document-upload"><input type="file" accept="application/pdf,image/png,image/jpeg,image/webp" aria-label="Choose invoice document" onChange={event => setFile(event.target.files?.[0] || null)}/><button type="button" className="button secondary" disabled={!file || busy} onClick={() => void upload()}>{busy ? "Uploading…" : "Upload document"}</button></div>
     {error && <div className="notice danger" role="alert">{error}</div>}
   </Panel>;
 }

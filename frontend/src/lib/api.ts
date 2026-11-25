@@ -54,7 +54,7 @@ export const api = {
   uploadIntake:(file:File,key:string)=>{const form=new FormData();form.set("file",file);return request<InvoiceIntake>("/v1/invoice-intakes",{method:"POST",body:form,headers:{"Idempotency-Key":key}});},
   intake:(id:string)=>request<InvoiceIntake>(`/v1/invoice-intakes/${encodeURIComponent(id)}`),
   retryIntake:(id:string)=>post<InvoiceIntake>(`/v1/invoice-intakes/${encodeURIComponent(id)}/extract`),
-  reviewIntake:(id:string,fields:InvoiceDraftFields,supplierId:string|null,createNewSupplier:boolean)=>request<InvoiceIntake>(`/v1/invoice-intakes/${encodeURIComponent(id)}`,{method:"PATCH",body:JSON.stringify({fields,supplier_id:supplierId,create_new_supplier:createNewSupplier})}),
+  reviewIntake:(id:string,fields:InvoiceDraftFields,supplierId:string|null,createNewSupplier:boolean,reviewedDocument?:import("./server/invoices/universal").UniversalDocument|null,classificationReason?:string|null,singleInvoiceConfirmed?:boolean)=>request<InvoiceIntake>(`/v1/invoice-intakes/${encodeURIComponent(id)}`,{method:"PATCH",body:JSON.stringify({fields,supplier_id:supplierId,create_new_supplier:createNewSupplier,reviewed_document:reviewedDocument,classification_override_reason:classificationReason,single_invoice_confirmed:singleInvoiceConfirmed})}),
   analyzeIntake:(id:string)=>post<Invoice>(`/v1/invoice-intakes/${encodeURIComponent(id)}/analyze`),
   intakeDocument:async(id:string)=>{const response=await rawRequest(`/v1/invoice-intakes/${encodeURIComponent(id)}/document`);return response.blob();},
   assessments:(id:string)=>request<AssessmentHistory[]>(`/v1/invoices/${encodeURIComponent(id)}/assessments`),
