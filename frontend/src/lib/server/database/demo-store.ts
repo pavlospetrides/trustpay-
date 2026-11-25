@@ -134,6 +134,8 @@ export class DemoStore {
         if (row.risk_score >= 40 && !row.verified_by) throw new Error("Risky payment requires independent verification before approval");
         actor = "finance.manager@demo.local";
         if (row.verified_by === actor) throw new Error("Maker-checker separation failed");
+        // A score lowered by another invoice's verification is approvable only while that verification still stands.
+        if (!row.verified_by && String(row.signals_json).includes("BANK_ACCOUNT_VERIFIED_CHANGE") && !this.accountVerifiedOn(row.supplier_id, row.creditor_account)) throw new Error("Risky payment requires independent verification: the account verification it relied on was withdrawn or expired");
         if (this.db.prepare("SELECT 1 FROM invoices WHERE tenant_id=? AND supplier_id=? AND lower(invoice_number)=lower(?) AND status='approved' AND id<>?").get(TENANT, row.supplier_id, row.invoice_number, id)) throw new Error("Invoice cannot be approved because another copy is already approved");
         this.db.prepare("UPDATE invoices SET status='approved',approved_by=?,updated_at=? WHERE id=?").run(actor, now(), id);
         title = "Internal approval recorded — NO TRANSFER";

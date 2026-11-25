@@ -152,5 +152,7 @@ describe("synthetic local demo persistence", () => {
     expect([trusted.risk, trusted.status, trusted.signals[0].code, trusted.iban]).toEqual([25, "ready", "BANK_ACCOUNT_VERIFIED_CHANGE", newAccount]);
     db.transition("INV-2409", "reject", "Supplier says the bank change was fraud");
     expect(next("NEXT-2", "AS-2026-302").risk).toBe(75);
+    // NEXT-1 was scored while the trust stood; approval re-checks it and refuses.
+    expect(() => db.transition("NEXT-1", "approve", "")).toThrow("verification it relied on");
   });
 });

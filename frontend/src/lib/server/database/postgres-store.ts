@@ -116,11 +116,7 @@ export class PgStore {
     if ((await con.query(`select 1 from public.invoices where organization_id=$1 and public_id=$2`, [org, item.id])).rows[0]) throw new Error("Assessment ID already exists");
     // Serialise assessments per supplier so two concurrent copies of one invoice cannot both miss each other.
     const supplierRecord = (await con.query(`select name as supplier_name,vat_number,registration_number from public.suppliers where organization_id=$1 and id=$2 for update`, [org, supplierId])).rows[0] ?? {};
-    // A verification counts only while the invoice that carried it is not rejected, so rejecting after fraud cancels the trust.
-    const accountVerifiedOn = (await con.query(`select max(v.verified_at)::date::text as verified_on from public.verification_requests v
-      join public.supplier_bank_accounts b on b.organization_id=v.organization_id and b.id=v.bank_account_id
-      join public.invoices i on i.organization_id=v.organization_id and i.id=v.invoice_id
-      where v.organization_id=$1 and b.supplier_id=$2 and b.iban_fingerprint=$3 and v.status='verified' and i.status<>'rejected' and v.verified_at > now() - make_interval(days => $4)`, [org, supplierId, account.fingerprint, VERIFIED_ACCOUNT_TRUST_DAYS])).rows[0]?.verified_on ?? null;
+    const accountVerifiedOn = await this.accountVerifiedOn(con, org, supplierId, account.fingerprint);
     const history = await this.history(con, org, supplierId);
     const numbers = (await con.query(`select invoice_number,status from public.invoices where organization_id=$1 and supplier_id=$2`, [org, supplierId])).rows as { invoice_number: string; status: string }[];
     const otherOpenInvoices = numbers.filter((row) => row.status !== "rejected").map((row) => row.invoice_number);
@@ -134,9 +130,17 @@ export class PgStore {
     return invoiceId;
   }
 
+  /** Latest independent verification of this account within the trust window. It counts only while the invoice that carried it is not rejected. */
+  private async accountVerifiedOn(con: QueryConnection, org: string, supplierId: string, fingerprint: string): Promise<string | null> {
+    return (await con.query(`select max(v.verified_at)::date::text as verified_on from public.verification_requests v
+      join public.supplier_bank_accounts b on b.organization_id=v.organization_id and b.id=v.bank_account_id
+      join public.invoices i on i.organization_id=v.organization_id and i.id=v.invoice_id
+      where v.organization_id=$1 and b.supplier_id=$2 and b.iban_fingerprint=$3 and v.status='verified' and i.status<>'rejected' and v.verified_at > now() - make_interval(days => $4)`, [org, supplierId, fingerprint, VERIFIED_ACCOUNT_TRUST_DAYS])).rows[0]?.verified_on ?? null;
+  }
+
   async transition(id: string, action: TransitionAction, note: string, principal: Principal): Promise<Invoice> {
     await transaction(this.pool, async (con) => {
-      const row = (await con.query(`select i.*,a.score from public.invoices i join lateral (select score from public.risk_assessments a where a.organization_id=i.organization_id and a.invoice_id=i.id order by a.assessed_at desc,a.id desc limit 1) a on true where i.organization_id=$1 and (i.id=$2::uuid or i.public_id=$3) for update of i`, [principal.organizationId, internalId(id), id])).rows[0];
+      const row = (await con.query(`select i.*,a.score from public.invoices i join lateral (select score,id as assessment_id from public.risk_assessments a where a.organization_id=i.organization_id and a.invoice_id=i.id order by a.assessed_at desc,a.id desc limit 1) a on true where i.organization_id=$1 and (i.id=$2::uuid or i.public_id=$3) for update of i`, [principal.organizationId, internalId(id), id])).rows[0];
       if (!row) throw new Error("Invoice not found");
       const policyRow = { status: row.status, score: row.score, verifiedBy: row.verified_by, createdBy: row.created_by };
       authorizeTransition(principal, action, policyRow);
@@ -151,6 +155,11 @@ export class PgStore {
       } else if (action === "approve") {
         // Same supplier lock as assessment: two copies cannot be approved concurrently, and copies from before #30 are caught here.
         await con.query(`select 1 from public.suppliers where organization_id=$1 and id=$2 for update`, [principal.organizationId, row.supplier_id]);
+        // A score lowered by another invoice's verification is approvable only while that verification still stands.
+        if (!row.verified_by && (await con.query(`select 1 from public.risk_signals where organization_id=$1 and assessment_id=$2 and code='BANK_ACCOUNT_VERIFIED_CHANGE'`, [principal.organizationId, row.assessment_id])).rows[0]) {
+          const fingerprint = (await con.query(`select iban_fingerprint from public.supplier_bank_accounts where organization_id=$1 and id=$2`, [principal.organizationId, row.bank_account_id])).rows[0].iban_fingerprint;
+          if (!(await this.accountVerifiedOn(con, principal.organizationId, row.supplier_id, fingerprint))) throw new Error("Risky invoice needs independent verification: the account verification it relied on was withdrawn or expired");
+        }
         if ((await con.query(`select 1 from public.invoices where organization_id=$1 and supplier_id=$2 and lower(invoice_number)=lower($3) and status='approved' and id<>$4`, [principal.organizationId, row.supplier_id, row.invoice_number, row.id])).rows[0]) throw new Error("Invoice cannot be approved because another copy is already approved");
         await con.query(`insert into public.payment_approvals (organization_id,invoice_id,actor_id,decision,reason) values ($1,$2,$3,'approved','Internal review only; no payment initiation')`, [principal.organizationId, row.id, principal.userId]);
         await con.query(`update public.invoices set approved_by=$1,status='approved',updated_at=now() where organization_id=$2 and id=$3`, [principal.userId, principal.organizationId, row.id]);
