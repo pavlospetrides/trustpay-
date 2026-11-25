@@ -7,6 +7,7 @@ import { IntakeStore } from "../invoices/intake-store";
 import { PrivateInvoiceStorage } from "../invoices/private-storage";
 import { readDocument, MAX_DOCUMENT_BYTES } from "../invoices/document";
 import { reviewedInvoiceSchema } from "../invoices/extraction";
+import { universalDocumentSchema } from "../invoices/universal";
 import { JiniusSync } from "../jinius/sync";
 import { authenticateRequest } from "../auth/request";
 import { StatusError } from "./status-error";
@@ -25,7 +26,14 @@ const isoDate = z.string().refine((value) => /^\d{4}-\d{2}-\d{2}$/.test(value) &
 // node:sqlite and PostgreSQL both mishandle NUL in text: SQLite truncates it on read, PostgreSQL rejects it.
 const text = (min: number, max: number) => z.string().min(min).max(max).refine((value) => !value.includes("\u0000"), "Text must not contain NUL characters");
 const assessmentInput = z.strictObject({ id: z.string().min(3).max(64).regex(/^[A-Za-z0-9_-]+$/), supplier_id: text(3, 32), invoice_number: text(2, 70), amount_cents: z.number().int().positive().max(100_000_000_000), creditor_account: text(4, 64).regex(/^(?:[A-Za-z0-9-]|[^\S\uFEFF])+$/, "Account may contain only letters, digits, whitespace and dashes"), invoice_date: isoDate });
-const reviewInput = z.strictObject({ fields: reviewedInvoiceSchema, supplier_id: z.string().nullable(), create_new_supplier: z.boolean() });
+const reviewInput = z.strictObject({
+  fields: reviewedInvoiceSchema,
+  supplier_id: z.string().nullable(),
+  create_new_supplier: z.boolean(),
+  reviewed_document: universalDocumentSchema.nullable().optional(),
+  classification_override_reason: text(20, 500).trim().min(20).nullable().optional(),
+  single_invoice_confirmed: z.boolean().optional(),
+});
 const verifyInput = z.strictObject({ evidence_note: text(12, 500) });
 const rejectInput = z.strictObject({ reason: text(12, 500) });
 const resolveInput = z.strictObject({ supplier_id: text(1, 32) });
@@ -157,7 +165,7 @@ export async function handleApiRequest(request: Request, segments: string[], con
       if (path.length >= 2) {
         const id = uuid.parse(path[1]);
         if (path.length === 2 && method === "GET") return json(await context.intake.get(id, principal!));
-        if (path.length === 2 && method === "PATCH") { const input = reviewInput.parse(await request.json()); return json(await context.intake.review(id, input.fields, input.supplier_id, input.create_new_supplier, principal!)); }
+        if (path.length === 2 && method === "PATCH") { const input = reviewInput.parse(await request.json()); return json(await context.intake.review(id, input.fields, input.supplier_id, input.create_new_supplier, principal!, input.reviewed_document, input.classification_override_reason, input.single_invoice_confirmed)); }
         if (path.length === 3 && path[2] === "extract" && method === "POST") return json(await context.intake.retry(id, principal!));
         if (path.length === 3 && path[2] === "analyze" && method === "POST") return invoiceJson(await context.intake.analyze(id, principal!));
         if (path.length === 3 && path[2] === "document" && method === "GET") {

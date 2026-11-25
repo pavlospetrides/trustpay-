@@ -2,6 +2,10 @@
 
 **Start here:** [handoff for 26 November onward](handoff-2026-11-25.md) lists what merged on 25 November, the owner actions still open and the work order.
 
+## Universal invoice reader (#36)
+
+The reader from [#34](https://github.com/pavlospetrides/trustpay-/pull/34) originally merged into the Windows install branch after that branch had merged into `main`. The reader adds detailed invoice extraction and a review screen that preserves the source evidence. The integration keeps the existing rejection and supplier identity checks. WEBP uploads on the hosted development project require `supabase/migrations/20261125000100_invoice_webp.sql`, applied manually. See the [reader setup](ai-invoice-intelligence.md) and [synthetic benchmark](universal-reader-evaluation.md).
+
 ## Verified-account trust and supplier identity checks (#32, merged in [#33](https://github.com/pavlospetrides/trustpay-/pull/33), `df6b51a`)
 
 From the financial-controls review, items 4 and 7.
