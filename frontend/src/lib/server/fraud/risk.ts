@@ -21,13 +21,50 @@ export interface RiskInput {
   previousAccounts: Iterable<string>;
   previousPaidAmountsCents: Iterable<number>;
   previouslyPaidInvoices: Iterable<string>;
+  /** Invoice numbers of this supplier's other invoices that are not rejected (open, held, blocked or approved). */
+  otherOpenInvoices?: Iterable<string>;
+  /** Invoice numbers of this supplier's rejected invoices. A resubmission needs independent verification. */
+  rejectedInvoices?: Iterable<string>;
+  /** When the destination account was last independently verified on a non-rejected invoice within the trust window (ISO date). */
+  accountVerifiedOn?: string | null;
+  /** Identity fields that differ between the uploaded invoice and the supplier record. */
+  identityMismatches?: IdentityField[];
+}
+
+export type IdentityField = "vat_number" | "registration_number" | "supplier_name";
+export interface IdentityValues { vat_number?: string | null; registration_number?: string | null; supplier_name?: string | null; country?: string | null }
+
+/** How long an independent account verification lowers the changed-account signal. */
+export const VERIFIED_ACCOUNT_TRUST_DAYS = 90;
+
+// Only a trailing legal form is dropped from names ("Aegean Co Supplies" keeps its "Co").
+const TRAILING_LEGAL_FORM = /(\s+(limited|ltd|llc|plc|inc|s\.?a|gmbh|co|company|corp|corporation)\.?)+$/u;
+// Compatibility-decompose and drop accents (Greek tonos, Latin diacritics), then case-fold and keep letters and digits.
+const plain = (value: string) => casefold(value.normalize("NFKD").replace(/\p{M}/gu, "")).replace(/[^\p{L}\p{N}]/gu, "");
+// Prefixes that may be left out: a VAT number's country code, or "HE" for a company in the Cyprus registry.
+const omissiblePrefix = (field: IdentityField, value: string, country: string) => (field === "vat_number" ? /^[a-z]{2}(?=\d)/ : country === "CY" ? /^he(?=\d)/ : /$^/).exec(value)?.[0] ?? "";
+function sameIdentity(field: IdentityField, left: string, right: string, country: string): boolean {
+  if (field === "supplier_name") return plain(casefold(left.normalize("NFKC")).replace(TRAILING_LEGAL_FORM, "")) === plain(casefold(right.normalize("NFKC")).replace(TRAILING_LEGAL_FORM, ""));
+  const [a, b] = [plain(left), plain(right)];
+  if (a === b) return true;
+  // A prefix written on one side only may be omitted (CY10012345A vs 10012345A, HE12345 vs 12345); two different prefixes never match (CY vs GB).
+  const [pa, pb] = [omissiblePrefix(field, a, country), omissiblePrefix(field, b, country)];
+  return !(pa && pb) && a.slice(pa.length) === b.slice(pb.length);
+}
+
+/** Fields present on both sides that do not match after normalisation. Missing values are never compared. */
+export function identityMismatches(invoice: IdentityValues, supplier: IdentityValues): IdentityField[] {
+  return (["vat_number", "registration_number", "supplier_name"] as const).filter((field) => {
+    const left = invoice[field]?.trim(), right = supplier[field]?.trim();
+    return Boolean(left && right) && !sameIdentity(field, left!, right!, (supplier.country ?? "").trim().toUpperCase());
+  });
 }
 
 // Python's str.isspace() set: unlike JavaScript's \s it includes U+001C–U+001F and U+0085 and excludes U+FEFF.
 const PY_SPACE = "\\t\\n\\v\\f\\r\\x1c-\\x20\\x85\\xa0\\u1680\\u2000-\\u200a\\u2028\\u2029\\u202f\\u205f\\u3000";
 const PY_EDGES = new RegExp(`^[${PY_SPACE}]+|[${PY_SPACE}]+$`, "g"), PY_SPACES = new RegExp(`[${PY_SPACE}]+`, "g");
 const pyStrip = (value: string) => value.replace(PY_EDGES, "");
-const normalizedAccount = (value: string) => value.toUpperCase().replace(PY_SPACES, "");
+export const normalizedAccount = (value: string) => value.toUpperCase().replace(PY_SPACES, "");
 // Python's str.casefold, checked against every code point: upper-then-lower per character gives the same matches
 // (Cherokee folds the other way round but groups the same letters), except ẞ/ß, which casefold turns into "ss",
 // and Unicode 16 letters that Python 3.13 does not know.
@@ -66,16 +103,24 @@ export function assessPayment(input: RiskInput): Assessment {
   const accounts = [...input.previousAccounts].filter((account) => pyStrip(account)).map(normalizedAccount);
   const amounts = [...input.previousPaidAmountsCents].filter((amount) => amount > 0);
   const paid = new Set([...input.previouslyPaidInvoices].map((value) => casefold(pyStrip(value))));
+  const open = new Set([...(input.otherOpenInvoices ?? [])].map((value) => casefold(pyStrip(value))));
+  const rejected = new Set([...(input.rejectedInvoices ?? [])].map((value) => casefold(pyStrip(value))));
   const signals: RiskSignal[] = [];
 
   if (paid.has(casefold(pyStrip(invoiceNumber)))) {
     signals.push({ code: "DUPLICATE_PAID_INVOICE", weight: 100, explanation: "This supplier's invoice number matches a previously paid invoice. A second payment must be blocked.", severity: "critical" });
+  } else if (open.has(casefold(pyStrip(invoiceNumber)))) {
+    signals.push({ code: "DUPLICATE_OPEN_INVOICE", weight: 100, explanation: "This supplier's invoice number matches another invoice that is already open or approved. Only one copy may be approved; reject one before continuing.", severity: "critical" });
+  } else if (rejected.has(casefold(pyStrip(invoiceNumber)))) {
+    signals.push({ code: "PREVIOUSLY_REJECTED_INVOICE", weight: 40, explanation: "A copy of this supplier invoice number was rejected before. Independently verify this resubmission before approval.", severity: "review" });
   }
   if (accounts.length) {
     const counts = new Map<string, number>();
     for (const account of accounts) counts.set(account, (counts.get(account) ?? 0) + 1);
     const canonical = [...counts.keys()].sort().reduce((best, account) => (counts.get(account)! > counts.get(best)! ? account : best));
-    if (normalizedAccount(currentAccount) !== canonical) {
+    if (normalizedAccount(currentAccount) !== canonical && input.accountVerifiedOn) {
+      signals.push({ code: "BANK_ACCOUNT_VERIFIED_CHANGE", weight: 25, explanation: `The payment destination differs from the account used in ${counts.get(canonical)} of ${accounts.length} prior supplier payments, but it was independently verified on ${input.accountVerifiedOn}. Check that evidence before approval.`, severity: "review" });
+    } else if (normalizedAccount(currentAccount) !== canonical) {
       signals.push({ code: "BANK_ACCOUNT_CHANGED", weight: 75, explanation: `The payment destination differs from the account used in ${counts.get(canonical)} of ${accounts.length} prior supplier payments. Independently verify the new account.`, severity: "critical" });
     }
   } else {
@@ -91,14 +136,22 @@ export function assessPayment(input: RiskInput): Assessment {
       signals.push({ code: "ELEVATED_AMOUNT", weight: 40, explanation: `Amount is ${ratio}× the historical median (€${typical}).`, severity: "review" });
     }
   }
+  const mismatches = input.identityMismatches ?? [];
+  const strong = mismatches.filter((field) => field !== "supplier_name");
+  if (strong.length) {
+    signals.push({ code: "SUPPLIER_IDENTITY_MISMATCH", weight: 50, explanation: `The invoice's ${strong.map((field) => field.replace("_", " ")).join(" and ")} does not match the selected supplier record. Confirm who issued this invoice before approval.`, severity: "review" });
+  }
+  if (mismatches.includes("supplier_name")) {
+    signals.push({ code: "SUPPLIER_NAME_MISMATCH", weight: 20, explanation: "The supplier name on the invoice differs from the selected supplier record.", severity: "review" });
+  }
   const score = Math.min(100, signals.reduce((sum, signal) => sum + signal.weight, 0));
-  const duplicate = signals.some((signal) => signal.code === "DUPLICATE_PAID_INVOICE");
+  const duplicate = signals.some((signal) => signal.code === "DUPLICATE_PAID_INVOICE" || signal.code === "DUPLICATE_OPEN_INVOICE");
   return {
     score,
     level: score >= 75 ? "critical" : score >= 40 ? "review" : "low",
     recommended_status: duplicate ? "blocked" : score >= 40 ? "needs_review" : "ready",
     signals,
     reason: signals[0]?.explanation ?? "Account, invoice reference and amount are consistent with the available historical data.",
-    kind: duplicate ? "duplicate" : signals.some((signal) => signal.code === "BANK_ACCOUNT_CHANGED") ? "iban" : signals.some((signal) => signal.code === "LARGE_AMOUNT_DEVIATION" || signal.code === "ELEVATED_AMOUNT") ? "amount" : signals.length ? "new" : "normal",
+    kind: duplicate ? "duplicate" : signals.some((signal) => signal.code === "BANK_ACCOUNT_CHANGED" || signal.code === "BANK_ACCOUNT_VERIFIED_CHANGE") ? "iban" : signals.some((signal) => signal.code === "LARGE_AMOUNT_DEVIATION" || signal.code === "ELEVATED_AMOUNT") ? "amount" : signals.length ? "new" : "normal",
   };
 }

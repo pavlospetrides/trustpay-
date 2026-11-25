@@ -1,12 +1,27 @@
 ﻿# Team status — 25 November 2026
 
-## Windows installation fix (25 November 2026, #25)
+**Start here:** [handoff for 26 November onward](handoff-2026-11-25.md) lists what merged on 25 November, the owner actions still open and the work order.
+
+## Verified-account trust and supplier identity checks (#32, merged in [#33](https://github.com/pavlospetrides/trustpay-/pull/33), `df6b51a`)
+
+From the financial-controls review, items 4 and 7.
+- **Verified accounts:** a bank account independently verified on another invoice drops from +75 to +25 ("verified on <date>") for later invoices. That invoice must be approved and still approved, within 90 days, at least the new amount, and verified by someone other than the new invoice's maker and approver. Approval re-checks this under the supplier lock; rejecting the verifying invoice (which also takes the lock) withdraws the trust.
+- **Supplier identity:** uploaded invoices compare extracted VAT and registration numbers with the supplier record (+50 on mismatch, verification required) and the name (+20). The values read from the document are kept through review, so clearing them does not hide a mismatch. A VAT country code may be omitted; the HE registry prefix only for suppliers with country CY.
+- **Account input:** manual accounts accept only letters, digits, dashes and the whitespace both stores strip.
+
+No migration. Follow-ups: identity checks for Jinius and manual invoices once they carry these fields; the pre-existing dash handling difference between the demo store and the PostgreSQL IBAN check.
+
+## Duplicate approvals, release hold and reject (#30, merged in [#31](https://github.com/pavlospetrides/trustpay-/pull/31), `a16713c`)
+
+From the financial-controls review. A second non-rejected copy of a supplier invoice number is blocked as a duplicate when assessed. Approval re-checks under a supplier lock, so two copies cannot both be approved, including copies created earlier. A copy rejected earlier needs independent verification. Held invoices can be released (not by their creator); verifying a held invoice keeps the hold. Reject needs a reason, is final, and also withdraws an approval before payment. **The hosted development project needs `supabase/migrations/20261126000100_invoice_rejection.sql` applied by hand before reject works there.** Follow-ups: Jinius revisions that change the invoice number, invoice-number normalisation (review item 6), and typed 403/409 errors.
+
+## Windows installation fix (#25, merged, `b5e3d2e`)
 
 At main commit `4eb62f7`, the local SQLite dependency falls back to native compilation on Windows Node.js 24.11.1. It fails without Windows SDK 10.0.26100.0. [PR #25](https://github.com/pavlospetrides/trustpay-/pull/25) moves the synthetic local store to the built-in `node:sqlite` module and removes the native SQLite package. It also adds a Windows CI install job that runs without Python and with node-gyp's Python fallback disabled. The PostgreSQL and Supabase paths are unchanged. Node 24.11.1 or newer within 24.x is required.
 
 Pavlos wrote and tested the change on Windows. MakeItEzzz555 reviewed it as the human reviewer, with independent reviews by Claude and Codex. The reviews found that `node:sqlite` truncates text at a NUL character when reading. The API now rejects NUL in assessment, verification and resolve input, for both backends. The reviews also found that a rollback after SQLite had already rolled back hid the original error. Both bugs have regression tests. Remaining: Node 26 users get an engine warning, and the parity test does not compare HTTP status codes (Codex reports that intake POST answers 403 against a 422 fixture, not re-checked here). Both are follow-ups.
 
-## Differentiation strategy (proposed, #28 / #29)
+## Differentiation strategy (merged in [#29](https://github.com/pavlospetrides/trustpay-/pull/29), `2a0a2b6`; team decision open on #28)
 
 Many teams may enter the same "AI checks the invoice IBAN before you pay, with Jinius" idea. Claude and Codex researched it independently and agreed a direction. TrustPay should confirm a changed payment destination with the supplier who issued the invoice on Jinius, then approve that exact invoice version with an audit trail. An edit invalidates both the supplier confirmation and the buyer approval. The demo opens with the emailed PDF beside the supplier-issued Jinius record. Details, sources and claims to avoid are in [differentiation-strategy.md](differentiation-strategy.md). The raw reports are in [research/](research/).
 

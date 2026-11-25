@@ -31,6 +31,31 @@ describe("single-server synthetic API", () => {
       expect(db.invoice("INV-2409").status).toBe("needs_review");
     } finally { db.close(); }
   });
+  it("rejects through the API with a reason and refuses a missing one", async () => {
+    const db = new DemoStore(":memory:");
+    const context = { mode: "sqlite" as const, demo: db };
+    const reject = (body?: unknown) => handleApiRequest(request("v1/invoices/INV-2412/reject", "POST", body), ["v1", "invoices", "INV-2412", "reject"], context);
+    try {
+      expect((await reject({ reason: "short" })).status).toBe(422);
+      expect((await reject({ reason: "            padded" })).status).toBe(422);
+      const rejected = await reject({ reason: "Supplier confirmed it never issued this" });
+      expect([rejected.status, (await rejected.json()).status]).toEqual([200, "rejected"]);
+      expect((await handleApiRequest(request("v1/invoices/INV-2412/approve", "POST"), ["v1", "invoices", "INV-2412", "approve"], context)).status).toBe(409);
+    } finally { db.close(); }
+  });
+  it("refuses invisible characters in a manual payment account", async () => {
+    const db = new DemoStore(":memory:");
+    try {
+      const response = await handleApiRequest(request("v1/invoices/assess", "POST", { id: "NEL-1", supplier_id: "SUP-001", invoice_number: "AS-NEL", amount_cents: 100, creditor_account: "GB43TRST\u0085000099", invoice_date: "2026-11-24" }), ["v1", "invoices", "assess"], { mode: "sqlite", demo: db });
+      expect(response.status).toBe(422);
+      const tabbed = await handleApiRequest(request("v1/invoices/assess", "POST", { id: "TAB-1", supplier_id: "SUP-001", invoice_number: "AS-TAB", amount_cents: 100, creditor_account: "GB43\tTRST\t000099", invoice_date: "2026-11-24" }), ["v1", "invoices", "assess"], { mode: "sqlite", demo: db });
+      expect(tabbed.status).toBe(201);
+      const bom = await handleApiRequest(request("v1/invoices/assess", "POST", { id: "BOM-1", supplier_id: "SUP-001", invoice_number: "AS-BOM", amount_cents: 100, creditor_account: "GB43TRST\ufeff000099", invoice_date: "2026-11-24" }), ["v1", "invoices", "assess"], { mode: "sqlite", demo: db });
+      expect(bom.status).toBe(422);
+      const nbsp = await handleApiRequest(request("v1/invoices/assess", "POST", { id: "NBSP-1", supplier_id: "SUP-001", invoice_number: "AS-NBSP", amount_cents: 100, creditor_account: "GB43TRST\u00a0000099", invoice_date: "2026-11-24" }), ["v1", "invoices", "assess"], { mode: "sqlite", demo: db });
+      expect(nbsp.status).toBe(201);
+    } finally { db.close(); }
+  });
   it("rejects malformed manual assessments before persistence", async () => {
     const db = new DemoStore(":memory:");
     try {

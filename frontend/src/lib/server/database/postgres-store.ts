@@ -1,8 +1,8 @@
 import type { AuditEvent, AssessmentInput, Invoice, Supplier } from "../../types";
 import type { AssessmentHistory } from "../../intake";
 import type { Principal, TransitionAction } from "../approvals/policy";
-import { authorizeTransition } from "../approvals/policy";
-import { assessPayment } from "../fraud/risk";
+import { authorizeTransition, releasedStatus } from "../approvals/policy";
+import { assessPayment, identityMismatches, VERIFIED_ACCOUNT_TRUST_DAYS, type IdentityValues } from "../fraud/risk";
 import { AccountProtector } from "../security/account";
 import { centsToDecimal, decimalToCents } from "./money";
 import { presentInvoice, presentSupplierHistory, type HistoricalPayment, type InvoiceRow } from "./present";
@@ -110,12 +110,18 @@ export class PgStore {
     return this.invoice(item.id, principal);
   }
 
-  async recordAssessment(con: QueryConnection, item: AssessmentInput & { due_date?: string | null; external_invoice_id?: string }, principal: Principal, supplierId: string, source: string): Promise<string> {
+  async recordAssessment(con: QueryConnection, item: AssessmentInput & { due_date?: string | null; external_invoice_id?: string; supplier_name?: string | null; vat_number?: string | null; registration_number?: string | null; extracted_identity?: IdentityValues }, principal: Principal, supplierId: string, source: string): Promise<string> {
     const org = principal.organizationId;
     const account = this.protector.protect(item.creditor_account);
     if ((await con.query(`select 1 from public.invoices where organization_id=$1 and public_id=$2`, [org, item.id])).rows[0]) throw new Error("Assessment ID already exists");
+    // Serialise assessments per supplier so two concurrent copies of one invoice cannot both miss each other.
+    const supplierRecord = (await con.query(`select name as supplier_name,vat_number,registration_number,country from public.suppliers where organization_id=$1 and id=$2 for update`, [org, supplierId])).rows[0] ?? {};
+    const accountVerifiedOn = await this.trustedVerification(con, org, supplierId, account.fingerprint, item.amount_cents, [principal.userId]);
     const history = await this.history(con, org, supplierId);
-    const assessment = assessPayment({ invoiceNumber: item.invoice_number, currentAccount: account.fingerprint, amountCents: item.amount_cents, previousAccounts: history.map((row) => row.iban_fingerprint), previousPaidAmountsCents: history.map((row) => decimalToCents(row.amount)), previouslyPaidInvoices: history.flatMap((row) => row.historical_invoice_number ? [row.historical_invoice_number] : []) });
+    const numbers = (await con.query(`select invoice_number,status from public.invoices where organization_id=$1 and supplier_id=$2`, [org, supplierId])).rows as { invoice_number: string; status: string }[];
+    const otherOpenInvoices = numbers.filter((row) => row.status !== "rejected").map((row) => row.invoice_number);
+    const rejectedInvoices = numbers.filter((row) => row.status === "rejected").map((row) => row.invoice_number);
+    const assessment = assessPayment({ invoiceNumber: item.invoice_number, currentAccount: account.fingerprint, amountCents: item.amount_cents, previousAccounts: history.map((row) => row.iban_fingerprint), previousPaidAmountsCents: history.map((row) => decimalToCents(row.amount)), previouslyPaidInvoices: history.flatMap((row) => row.historical_invoice_number ? [row.historical_invoice_number] : []), otherOpenInvoices, rejectedInvoices, accountVerifiedOn, identityMismatches: [...new Set([...identityMismatches(item, supplierRecord), ...identityMismatches(item.extracted_identity ?? {}, supplierRecord)])] });
     const accountId = (await con.query(`insert into public.supplier_bank_accounts (organization_id,supplier_id,encrypted_iban,iban_fingerprint,iban_last4) values ($1,$2,$3,$4,$5) on conflict (organization_id,supplier_id,iban_fingerprint) do update set updated_at=now() returning id`, [org, supplierId, account.encrypted, account.fingerprint, account.last4])).rows[0].id;
     const invoiceId = (await con.query(`insert into public.invoices (organization_id,public_id,supplier_id,external_source,external_invoice_id,invoice_number,issue_date,due_date,currency,total_amount,bank_account_id,status,created_by) values ($1,$2,$3,$4,$5,$6,$7,$8,'EUR',$9,$10,$11,$12) returning id`, [org, item.id, supplierId, source, item.external_invoice_id ?? item.id, item.invoice_number, item.invoice_date, item.due_date ?? null, centsToDecimal(item.amount_cents), accountId, assessment.recommended_status, source === "synthetic_seed" ? null : principal.userId])).rows[0].id;
     const saved = (await con.query(`insert into public.risk_assessments (organization_id,invoice_id,score,severity,kind,recommended_status,engine_version,explanation,evidence) values ($1,$2,$3,$4,$5,$6,'auditable-rules-v1',$7,$8::jsonb) returning id`, [org, invoiceId, assessment.score, assessment.level, assessment.kind, assessment.recommended_status, assessment.reason, JSON.stringify({ historical_payment_count: history.length, policy_score_not_probability: true })])).rows[0];
@@ -124,22 +130,57 @@ export class PgStore {
     return invoiceId;
   }
 
+  /**
+   * UTC date of the latest verification of this account that may lower a new invoice's score, or null. It counts only if
+   * its invoice was approved and is still approved (rejection cancels it), was verified within the trust window, covers
+   * at least this amount, and was verified by none of `excludedUsers` (the new invoice's maker and approver).
+   */
+  private async trustedVerification(con: QueryConnection, org: string, supplierId: string, fingerprint: string, amountCents: number, excludedUsers: (string | null)[]): Promise<string | null> {
+    return (await con.query(`select (max(v.verified_at) at time zone 'UTC')::date::text as verified_on from public.verification_requests v
+      join public.supplier_bank_accounts b on b.organization_id=v.organization_id and b.id=v.bank_account_id
+      join public.invoices i on i.organization_id=v.organization_id and i.id=v.invoice_id
+      where v.organization_id=$1 and b.supplier_id=$2 and b.iban_fingerprint=$3 and v.status='verified' and i.status='approved'
+        and v.verified_at > now() - make_interval(hours => $4) and i.total_amount >= $5::numeric and not (v.completed_by = any($6::uuid[]))`,
+      [org, supplierId, fingerprint, VERIFIED_ACCOUNT_TRUST_DAYS * 24, centsToDecimal(amountCents), excludedUsers.filter(Boolean)])).rows[0]?.verified_on ?? null;
+  }
+
   async transition(id: string, action: TransitionAction, note: string, principal: Principal): Promise<Invoice> {
     await transaction(this.pool, async (con) => {
-      const row = (await con.query(`select i.*,a.score from public.invoices i join lateral (select score from public.risk_assessments a where a.organization_id=i.organization_id and a.invoice_id=i.id order by a.assessed_at desc,a.id desc limit 1) a on true where i.organization_id=$1 and (i.id=$2::uuid or i.public_id=$3) for update of i`, [principal.organizationId, internalId(id), id])).rows[0];
+      const row = (await con.query(`select i.*,a.score,a.assessment_id from public.invoices i join lateral (select score,id as assessment_id from public.risk_assessments a where a.organization_id=i.organization_id and a.invoice_id=i.id order by a.assessed_at desc,a.id desc limit 1) a on true where i.organization_id=$1 and (i.id=$2::uuid or i.public_id=$3) for update of i`, [principal.organizationId, internalId(id), id])).rows[0];
       if (!row) throw new Error("Invoice not found");
-      authorizeTransition(principal, action, { status: row.status, score: row.score, verifiedBy: row.verified_by, createdBy: row.created_by });
+      const policyRow = { status: row.status, score: row.score, verifiedBy: row.verified_by, createdBy: row.created_by };
+      authorizeTransition(principal, action, policyRow);
       let title: string;
       if (action === "verify") {
         if (note.trim().length < 12) throw new Error("Independent verification needs an evidence reference (12+ characters)");
         await con.query(`insert into public.verification_requests (organization_id,invoice_id,bank_account_id,verification_type,status,initiated_by,completed_by,verified_at,evidence_reference) values ($1,$2,$3,'independent_callback','verified',$4,$4,now(),$5)`, [principal.organizationId, row.id, row.bank_account_id, principal.userId, note.trim()]);
         await con.query(`update public.supplier_bank_accounts set verification_status='verified',last_verified_at=now(),updated_at=now() where organization_id=$1 and id=$2`, [principal.organizationId, row.bank_account_id]);
-        await con.query(`update public.invoices set verified_by=$1,status='ready',updated_at=now() where organization_id=$2 and id=$3`, [principal.userId, principal.organizationId, row.id]);
+        // Verifying a held invoice records the evidence but keeps the hold until someone releases it.
+        await con.query(`update public.invoices set verified_by=$1,status=$2,updated_at=now() where organization_id=$3 and id=$4`, [principal.userId, row.status === "hold" ? "hold" : "ready", principal.organizationId, row.id]);
         title = "Independent verification recorded";
       } else if (action === "approve") {
+        // Same supplier lock as assessment: two copies cannot be approved concurrently, and copies from before #30 are caught here.
+        await con.query(`select 1 from public.suppliers where organization_id=$1 and id=$2 for update`, [principal.organizationId, row.supplier_id]);
+        // A score lowered by another invoice's verification is approvable only while that verification still stands.
+        if (!row.assessment_id) throw new Error("Invoice cannot be approved without a current risk assessment");
+        if (!row.verified_by && (await con.query(`select 1 from public.risk_signals where organization_id=$1 and assessment_id=$2 and code='BANK_ACCOUNT_VERIFIED_CHANGE'`, [principal.organizationId, row.assessment_id])).rows[0]) {
+          const fingerprint = (await con.query(`select iban_fingerprint from public.supplier_bank_accounts where organization_id=$1 and id=$2`, [principal.organizationId, row.bank_account_id])).rows[0].iban_fingerprint;
+          if (!(await this.trustedVerification(con, principal.organizationId, row.supplier_id, fingerprint, decimalToCents(String(row.total_amount)), [row.created_by, principal.userId]))) throw new Error("Risky invoice needs independent verification: the account verification it relied on is no longer valid for this approval (withdrawn, expired, or recorded by you or the invoice creator)");
+        }
+        if ((await con.query(`select 1 from public.invoices where organization_id=$1 and supplier_id=$2 and lower(invoice_number)=lower($3) and status='approved' and id<>$4`, [principal.organizationId, row.supplier_id, row.invoice_number, row.id])).rows[0]) throw new Error("Invoice cannot be approved because another copy is already approved");
         await con.query(`insert into public.payment_approvals (organization_id,invoice_id,actor_id,decision,reason) values ($1,$2,$3,'approved','Internal review only; no payment initiation')`, [principal.organizationId, row.id, principal.userId]);
         await con.query(`update public.invoices set approved_by=$1,status='approved',updated_at=now() where organization_id=$2 and id=$3`, [principal.userId, principal.organizationId, row.id]);
         title = "Internal approval recorded — no transfer";
+      } else if (action === "release") {
+        await con.query(`update public.invoices set status=$1,updated_at=now() where organization_id=$2 and id=$3`, [releasedStatus(policyRow), principal.organizationId, row.id]);
+        title = "Hold released";
+      } else if (action === "reject") {
+        // Approval reads other invoices' verifications under this lock, so a rejection cannot slip between that read and its commit.
+        await con.query(`select 1 from public.suppliers where organization_id=$1 and id=$2 for update`, [principal.organizationId, row.supplier_id]);
+        if (note.trim().length < 12) throw new Error("Rejection reason must have at least 12 characters");
+        await con.query(`insert into public.payment_approvals (organization_id,invoice_id,actor_id,decision,reason) values ($1,$2,$3,'rejected',$4)`, [principal.organizationId, row.id, principal.userId, note.trim()]);
+        await con.query(`update public.invoices set status='rejected',updated_at=now() where organization_id=$1 and id=$2`, [principal.organizationId, row.id]);
+        title = row.status === "approved" ? "Approval withdrawn — invoice rejected" : "Invoice rejected";
       } else {
         await con.query(`update public.invoices set status='hold',updated_at=now() where organization_id=$1 and id=$2`, [principal.organizationId, row.id]);
         title = "Invoice placed on hold";
