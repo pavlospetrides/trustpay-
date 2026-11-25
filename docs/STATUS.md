@@ -1,5 +1,11 @@
 ﻿# Team status — 25 November 2026
 
+## Differentiation strategy (proposed, #28 / #29)
+
+Many teams may enter the same "AI checks the invoice IBAN before you pay, with Jinius" idea. Claude and Codex researched it independently and agreed a direction. TrustPay should confirm a changed payment destination with the supplier who issued the invoice on Jinius, then approve that exact invoice version with an audit trail. An edit invalidates both the supplier confirmation and the buyer approval. The demo opens with the emailed PDF beside the supplier-issued Jinius record. Details, sources and claims to avoid are in [differentiation-strategy.md](differentiation-strategy.md). The raw reports are in [research/](research/).
+
+The team reports that at the 24 November Open Day, participants were told to create a Jinius API platform account, create fictitious legal entities, obtain a client ID and secret, and send mock invoices through the sandbox. The plan is one buyer and one supplier entity. The client secret stays in server-side environment settings only. Sandbox endpoints are not yet verified (#2). Most importantly, it is unknown whether the supplier can confirm or reject an invoice revision through the API. Owner: MakeItEzzz555. Next: verify the sandbox, ask the organisers about pre-built code under CC BY-SA 4.0 and the Jinius prize rubric, and prepare the solution declaration table.
+
 ## Node.js migration (merged)
 
 The Node.js migration ([#23](https://github.com/pavlospetrides/trustpay-/pull/23), with the gap fixes from [#24](https://github.com/pavlospetrides/trustpay-/pull/24)) merged into `main` on 25 November 2026 (`4eb62f7`) after Theodoros's review. CI passed on the merged code ([run 45571161663](https://github.com/pavlospetrides/trustpay-/actions/runs/45571161663)). `main` has no Python files. It replaces the active Python/FastAPI server with Next.js 16 Route Handlers and TypeScript server modules. `cd frontend && npm run dev` starts one process at http://127.0.0.1:3000. The local SQLite demo, authenticated Supabase PostgreSQL mode, private Storage, synthetic Jinius sync, deterministic risk rules, and maker-checker approvals remain available. No live Jinius or bank payment initiation exists.
