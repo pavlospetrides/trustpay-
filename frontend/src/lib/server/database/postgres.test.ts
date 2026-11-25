@@ -1,3 +1,4 @@
+import { types } from "pg";
 import { describe, expect, it } from "vitest";
 import { poolConfig, transaction } from "./postgres";
 
@@ -21,5 +22,14 @@ describe("PostgreSQL decision transaction boundary", () => {
     const client = { query: async (sql: string) => { calls.push(sql); if (sql === "insert audit") throw new Error("audit write failed"); return { rows: [] }; }, release: () => { calls.push("release"); } };
     await expect(transaction({ connect: async () => client }, async (connection) => { await connection.query("insert decision"); await connection.query("insert audit"); })).rejects.toThrow("audit write failed");
     expect(calls).toEqual(["BEGIN", "insert decision", "insert audit", "ROLLBACK", "release"]);
+  });
+});
+
+describe("PostgreSQL DATE values", () => {
+  it("stay the same calendar day when the server runs east of UTC", () => {
+    const zone = process.env.TZ;
+    process.env.TZ = "Asia/Nicosia";
+    try { expect(types.getTypeParser(types.builtins.DATE)("2026-11-25")).toBe("2026-11-25"); }
+    finally { if (zone === undefined) delete process.env.TZ; else process.env.TZ = zone; }
   });
 });

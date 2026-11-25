@@ -40,6 +40,7 @@ All paths are served under `/api` and return `Cache-Control: no-store` and `X-Co
 | GET | `/v1/audit` | Demo events | Tenant append-only log | 200 |
 | GET | `/v1/integrations` | Disconnected mock | Tenant connection and sync state | 200 |
 | POST | `/v1/integrations/jinius/sync` | 403 | Owner/admin synthetic sync | 200, 403; idempotent imports |
+| POST | `/v1/integrations/jinius/imports/{external_id}/{revision}/resolve` | 403 | Owner/admin/analyst assigns a supplier; refuses changed records | 200, 403/404/409/422 |
 | POST | `/v1/invoice-intakes` | 403 | Private upload and extraction | 201, 403/409/422/429 |
 | GET/PATCH | `/v1/invoice-intakes/{id}` | 404/403 | Tenant read/human review | 200, 403/404/422 |
 | POST | `/v1/invoice-intakes/{id}/extract` | 403 | Limited retry | 200, 403/404/422/429 |
@@ -63,3 +64,10 @@ PostgreSQL writes must run in transactions. Every assessment, verification, appr
 - The local SQLite browser overview showed the four seed invoices. The development server served the UI and API from one Next.js process. Docker and the Supabase CLI were unavailable in this Windows environment, so local `supabase test db` was not rerun; the existing SQL pgTAP suite remains in CI.
 - No live OpenAI API request was run because no API key is configured. The SDK adapter's schema and fallback paths have mocked unit coverage. Live Jinius access and payment initiation remain disabled.
 - Draft [PR #23](https://github.com/pavlospetrides/trustpay-/pull/23) is open from the dedicated branch. No branch was merged; human review remains pending.
+
+## Gap fixes (feat/ts-migration-gaps, 25 November 2026)
+
+- [x] Golden parity fixtures recorded from the Python backend at `e610436`, checked by `src/lib/server/parity/python-parity.test.ts` (69 cases). The recording script is in git history (commit `14e2d34`) and was deleted with the rest of Python.
+- [x] #22 resolve route and keyed record digest ported; digests match those the Python sync stored.
+- [x] Python `tests/rls` scenarios ported to `src/lib/server/testing/disposable-db.test.ts` and added to the CI database job.
+- [x] Error status codes compared message by message with the Python exceptions they replace.

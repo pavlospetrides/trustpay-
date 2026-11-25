@@ -4,7 +4,7 @@ export interface Invoice { id:string; supplier_id:string; supplier:string; short
 export interface Supplier { id:string; name:string; short:string; payment_count:number; last4:string; historical_median_eur:number|null }
 export interface AuditEvent { id:number; actor:string; action:string; title:string; detail:string; invoice_id:string|null; created_at:string }
 export interface SyncRun { id:string; status:"running"|"success"|"failed"; started_at:string; finished_at:string|null; records_seen:number; records_created:number; records_needs_review:number; records_skipped:number; safe_error:string|null }
-export interface ImportReview { external_id:string; revision:string; reason:string; created_at:string }
+export interface ImportReview { external_id:string; revision:string; reason:string; supplier_reference:string|null; resolvable:boolean; created_at:string }
 export interface Integrations { jinius:{status:string;adapter:string;source_label:string;live_connected:boolean;sync_available:boolean;next_step:string;last_run?:SyncRun|null;last_success_at?:string|null;imported_count?:number;needs_review_count?:number;needs_review?:ImportReview[]};bank_payment:{status:string;payment_initiation:boolean} }
 export interface Health { status:string; mode:string; payment_initiation:boolean; jinius_connection:string; risk_model:string }
 export interface AssessmentInput { id:string; supplier_id:string; invoice_number:string; amount_cents:number; creditor_account:string; invoice_date:string }

@@ -1,3 +1,5 @@
+> Historical prompt from before the Node.js migration (#14). The Python/FastAPI backend it mentions no longer exists; the API now runs as Next.js route handlers in `frontend/src/lib/server`.
+
 # CODEX MASTER TASK — TrustPay AI Premium Frontend v1
 
 You are the senior Next.js / React product engineer and UX architect for TrustPay AI. IMPLEMENT this task end-to-end IN THIS REPOSITORY, not merely propose a design. Make it beautiful, coherent, real, and demo-ready for a fintech hackathon. Use the two user-supplied 21.dev components as design/motion reference and adapt their actual code where fit. Do not use boilerplate shadcn dashboard aesthetics in place of the requested distinctive UI.

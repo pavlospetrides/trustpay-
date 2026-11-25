@@ -6,6 +6,29 @@ Branch `feat/node-typescript-backend-migration` replaces the active Python/FastA
 
 The Windows baseline before migration was Python `47 passed, 6 skipped` and frontend Vitest `19 passed` at `d50d3e5`. The migrated branch has a passing hosted synthetic API flow: owner upload/review/score 75; early approval and self-verification denied; analyst verification; approver approval; private document, assessment history, and audit checks; outsider invoice, document, and approval access denied. A real signed-in Chromium walkthrough passes the same review and approval path and displays audit activity. Final post-cleanup test counts and build result are recorded in [migration evidence](node-migration-checklist.md).
 
-The designated development project's migration history remains unreconciled. Do not run `supabase db push` against it. External OpenAI calls remain unverified because no live key is configured; the official SDK adapter has mocked tests and local PDF text extraction works. The historical FastAPI OpenAPI export remains only as a reference. The original checkout's unrelated `frontend/package-lock.json` edit is preserved outside this worktree. [Draft PR #23](https://github.com/pavlospetrides/trustpay-/pull/23) is open for human review; do not merge without it.
+### Gap fixes on `feat/ts-migration-gaps` (into #23)
+
+- **Python parity tests.** `frontend/src/lib/server/parity/python-fixtures.json` holds outputs recorded from the last Python backend (`e610436`): risk scores and explanation text, IBAN rules, AES-GCM ciphertext, HMAC fingerprints, intake drafts, the Jinius record digest, text extraction, image checks and 24 SQLite-mode API calls. `python-parity.test.ts` checks the TypeScript code against them. They found, and this branch fixes: half-cent medians rounded up instead of half-to-even, `ß` not matching `ss` in duplicate checks, demo-mode error messages, signal `weight`/`severity` dropped from invoice responses, and the demo intake 404 message.
+- **Error status codes.** Every TypeScript error message was compared with the Python exception it replaces. Fixed: a non-owner **Run sync** answered 422 instead of 403, and seven messages answered 500 or 422 instead of Python's 422 or 503.
+- **#22 ported.** Unknown-supplier Jinius imports can be resolved again (`POST /api/v1/integrations/jinius/imports/{external_id}/{revision}/resolve`), with the keyed record digest compatible with rows the Python sync already stored. The Integrations page changes from #22 are included. `JiniusSync` takes its feed as an `InvoiceSource`, like the Python adapter seam.
+- **Database tests ported.** The four Python `tests/rls` scenarios now run as `frontend/src/lib/server/testing/disposable-db.test.ts` in the CI database job, against the disposable local Supabase stack.
+
+Review fixes (25 Nov, Theodoros's review of #24 and #23):
+- duplicate checks fold `ẞ`, `ß` and `ss` together and strip whitespace exactly as Python did (a missed duplicate scored 0 and `ready`);
+- a Supabase Auth outage answers 503 after one retry, not 401 "Invalid or expired access token";
+- invoice dates stay the stored calendar day (`DATE` is kept as text); before, a server east of UTC showed the previous day.
+
+Uploads are now capped by counting bytes as they arrive, not by trusting `Content-Length` (security review of this branch).
+
+Findings that still wait for the owner:
+- whether the person who ran the sync should also be barred from verifying a resolved invoice (needs a schema change);
+- the same question for uploads: the user who analyzes an intake is recorded as maker, so a different uploader or reviewer could later verify it. Python behaved the same way; a fix needs `uploaded_by`/`reviewed_by` checks on the invoice (schema change);
+- a separate issue for country-specific IBAN length checks (pre-existing, also affects uploads).
+
+Review rows queued before the record-digest change cannot be resolved; they clear through a new provider revision.
+
+In Supabase mode, an owner or admin can run **Run sync** on the Integrations page (`POST /api/v1/integrations/jinius/sync`). Each synthetic demo invoice is assessed once through the same deterministic path as uploads and enters the normal maker-checker queue, labelled "Synthetic Jinius demo". Records with an unknown supplier or a missing or invalid IBAN go to human review instead. Runs, counts and safe errors are stored in `sync_runs` and the audit log.
+
+The designated development project's migration history remains unreconciled. Do not run `supabase db push` against it. External OpenAI calls remain unverified because no live key is configured; the official SDK adapter has mocked tests and local PDF text extraction works. The stale FastAPI `docs/openapi.json` export was deleted; [API_CONTRACT.md](../API_CONTRACT.md) lists the current routes and git history keeps the old file. The original checkout's unrelated `frontend/package-lock.json` edit is preserved outside this worktree. [Draft PR #23](https://github.com/pavlospetrides/trustpay-/pull/23) is open for human review; do not merge without it.
 
 See [run instructions](../README.md), [Supabase setup](supabase-setup.md), [API matrix](node-migration-checklist.md), and [Jinius boundary](jinius-integration-architecture.md).

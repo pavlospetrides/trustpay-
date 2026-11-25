@@ -1,3 +1,5 @@
+> Historical prompt from before the Node.js migration (#14). The Python/FastAPI backend it mentions no longer exists; the API now runs as Next.js route handlers in `frontend/src/lib/server`.
+
 # TRUSTPAY AI — CODEX IMPLEMENTATION TASK
 ## Full Crystal iPhone / Liquid Glass Redesign (React + Next.js)
 

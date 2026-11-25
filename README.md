@@ -35,4 +35,4 @@ npm run build
 - `supabase/migrations`: existing PostgreSQL schema and RLS policies. The hosted development project's migration history is not reconciled; do not run `supabase db push` there.
 - `docs/node-migration-checklist.md`: API matrix and migration verification.
 
-The repository contains no Python runtime or separate backend server. The historical FastAPI schema in `docs/openapi.json` is retained for migration reference; current Route Handlers are the implementation source of truth. Never commit credentials or use real customer, supplier, invoice, or bank data in this demo.
+The repository contains no Python runtime or separate backend server. The routes are listed in [API_CONTRACT.md](API_CONTRACT.md); the Route Handlers in `frontend/src/lib/server` are the source of truth. Never commit credentials or use real customer, supplier, invoice, or bank data in this demo.
