@@ -23,7 +23,7 @@
 - [x] Remove native SQLite dependencies, update the lockfile, set the Node engine, and document the version.
 - [x] Add a Windows CI job that runs a clean `npm ci` without Python on `PATH` and the local regression suite.
 - [x] Run clean installation, Vitest, typecheck, lint, build, and local `npm run dev`/API smoke on Windows.
-- [ ] Review the staged diff and secrets, commit, push, open a focused draft PR, and record evidence.
+- [x] Review the staged diff and secrets, commit, push, open [draft PR #25](https://github.com/pavlospetrides/trustpay-/pull/25), and record evidence. Human review remains required before merge.
 
 ## Local evidence
 
@@ -31,3 +31,4 @@
 - Vitest: 155 passed, 5 skipped. Typecheck, lint, and production build: exit 0.
 - Local Next.js API: health `ok` in `synthetic-local-demo`, four invoices, changed-account score 75 and `needs_review`, no payment initiation. Only port 3000 listened. The development server was then stopped to keep Windows binaries unlocked for the next install.
 - Node's built-in SQLite opened the previous worktree's existing local database read-only and found four invoices, 14 Aegean payments, and changed-account score 75.
+- GitHub Actions [run 45573081740](https://github.com/pavlospetrides/trustpay-/actions/runs/45573081740) passed the Linux app, Supabase database, and Windows clean-install jobs for code commit `6491ba2`.

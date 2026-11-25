@@ -2,7 +2,7 @@
 
 ## Windows installation fix (25 November 2026)
 
-At main commit `4eb62f7`, the local SQLite dependency falls back to native compilation on Windows Node.js 24.11.1 and fails without Windows SDK 10.0.26100.0. Branch `fix/windows-node-sqlite-install` ports the synthetic local store to the built-in `node:sqlite` module, removes the native SQLite package, and adds a Windows CI installation job. The PostgreSQL and Supabase paths remain unchanged. Verification and PR evidence are recorded with the branch.
+At main commit `4eb62f7`, the local SQLite dependency falls back to native compilation on Windows Node.js 24.11.1 and fails without Windows SDK 10.0.26100.0. [Draft PR #25](https://github.com/pavlospetrides/trustpay-/pull/25) ports the synthetic local store to the built-in `node:sqlite` module, removes the native SQLite package, and adds a Windows CI installation job. The PostgreSQL and Supabase paths remain unchanged. Linux app, Supabase database, and Windows install jobs passed on code commit `6491ba2`; human review is pending.
 
 ## Node.js migration branch
 
