@@ -2,6 +2,15 @@
 
 **Start here:** [handoff for 26 November onward](handoff-2026-11-25.md) lists what merged on 25 November, the owner actions still open and the work order.
 
+## Accounting review and Cyprus VAT (review item 11, branch `feat/cyprus-vat-accounting`, not yet merged)
+
+A first slice of the accounting copilot: `POST /api/v1/accounting/review` checks an invoice's amounts and suggests how to book it. Deterministic TypeScript in `frontend/src/lib/server/accounting/`; no AI, nothing stored, nothing posted. Details, rules and sources: [accounting-review.md](accounting-review.md).
+- **Confirmed errors** (the document does not add up): net + VAT ≠ total, quantity × price ≠ line, line or summary VAT ≠ rate, lines or summary ≠ totals, a Cyprus supplier stating a rate that did not exist on the invoice date.
+- **For professional review**: the VAT treatment (domestic, zero-rated or exempt, domestic reverse charge for construction, scrap and phones, EU reverse charge, foreign VAT, non-EU supplies), input VAT recoverability (never assumed), missing supplier VAT number, non-euro amounts, capitalisation above a threshold.
+- **Suggestions**: an expense category per line from keyword rules (organization lists accepted), and a balanced draft journal entry, reversed for credit notes.
+
+Not done yet: no screen uses it (it needs net, VAT and line items, which the universal reader in PR #34 extracts once it reaches `main`); organization category lists are passed per request, not stored.
+
 ## Verified-account trust and supplier identity checks (#32, merged in [#33](https://github.com/pavlospetrides/trustpay-/pull/33), `df6b51a`)
 
 From the financial-controls review, items 4 and 7.

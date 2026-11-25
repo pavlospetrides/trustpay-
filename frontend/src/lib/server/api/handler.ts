@@ -2,6 +2,7 @@ import { randomUUID } from "node:crypto";
 import { z, ZodError } from "zod";
 import type { Invoice } from "../../types";
 import { DemoStore } from "../database/demo-store";
+import { reviewInvoiceAccounting } from "../accounting/analyze";
 import { PgStore } from "../database/postgres-store";
 import { IntakeStore } from "../invoices/intake-store";
 import { PrivateInvoiceStorage } from "../invoices/private-storage";
@@ -135,6 +136,8 @@ export async function handleApiRequest(request: Request, segments: string[], con
         return new Response(new Uint8Array(data), { status: 200, headers: { ...headers, "Content-Type": record.content_type, "Content-Disposition": "attachment" } });
       }
     }
+    // Accounting review (review item 11): stateless, deterministic suggestions; nothing is stored or posted.
+    if (path.join("/") === "accounting/review" && method === "POST") return json(reviewInvoiceAccounting(await request.json()));
     if (path.join("/") === "suppliers" && method === "GET") return json(context.mode === "sqlite" ? context.demo.suppliers() : await context.pg.suppliers(principal!));
     if (path.join("/") === "audit" && method === "GET") return json(context.mode === "sqlite" ? context.demo.audit() : await context.pg.audit(principal!));
     if (path.join("/") === "integrations" && method === "GET") return json(context.mode === "sqlite" ? { jinius: { status: "mock", adapter: "DemoJiniusAdapter", source_label: "Synthetic Jinius demo", live_connected: false, sync_available: false, next_step: "Request authorized sandbox documentation and scopes from organizers" }, bank_payment: { status: "disabled", payment_initiation: false } } : await context.jinius.integrations(principal!));
