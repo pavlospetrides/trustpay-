@@ -11,8 +11,11 @@ export interface Assessment {
   recommended_status: "blocked" | "needs_review" | "ready";
   signals: RiskSignal[];
   reason: string;
-  kind: "duplicate" | "iban" | "amount" | "new" | "normal";
+  kind: "duplicate" | "possible_duplicate" | "iban" | "amount" | "new" | "normal";
 }
+
+/** Another invoice of the same supplier, used for the same-amount check. */
+export interface RecentInvoice { invoiceNumber: string; amountCents: number; invoiceDate: string }
 
 export interface RiskInput {
   invoiceNumber: string;
@@ -29,7 +32,14 @@ export interface RiskInput {
   accountVerifiedOn?: string | null;
   /** Identity fields that differ between the uploaded invoice and the supplier record. */
   identityMismatches?: IdentityField[];
+  /** Issue date of the invoice being assessed (ISO date), for the same-amount check. */
+  invoiceDate?: string | null;
+  /** This supplier's other non-rejected invoices, for the same-amount check. */
+  otherOpenInvoiceDetails?: Iterable<RecentInvoice>;
 }
+
+/** Days either side of the invoice date in which another invoice for the exact same amount is worth a second look. */
+export const SAME_AMOUNT_WINDOW_DAYS = 7;
 
 export type IdentityField = "vat_number" | "registration_number" | "supplier_name";
 export interface IdentityValues { vat_number?: string | null; registration_number?: string | null; supplier_name?: string | null; country?: string | null }
@@ -71,6 +81,31 @@ export const normalizedAccount = (value: string) => value.toUpperCase().replace(
 // Dotless ı stays as it is, as casefold keeps it.
 const casefold = (value: string) => [...value].map((char) => char === "ı" ? char : char.toUpperCase().toLowerCase()).join("").replace(/ß/g, "ss");
 
+/**
+ * The one matching rule for invoice numbers (review item 6). Case, spacing, punctuation and leading zeros are
+ * formatting, not identity: "AS-2026-0114", "as 2026 114" and "AS2026114" give the same key. Zeros are dropped per
+ * digit group before the groups are joined, so "INV-0114" matches "INV-114" but "INV-1014" stays different.
+ */
+export function invoiceNumberKey(value: string): string {
+  return casefold(pyStrip(value).normalize("NFKC"))
+    .split(/[^\p{L}\p{N}]+/u)
+    .map((part) => part.replace(/\d+/g, (digits) => digits.replace(/^0+(?=\d)/, "")))
+    .join("");
+}
+const compactInvoiceNumber = (value: string) => casefold(pyStrip(value).normalize("NFKC")).replace(/[^\p{L}\p{N}]/gu, "");
+/** The exact comparison the hard duplicate blocks use: case-folded, surrounding whitespace removed. */
+export const exactInvoiceNumber = (value: string) => casefold(pyStrip(value));
+/** True when two invoice numbers are the same invoice under the matching rule above (exact match when there is no key). */
+export function sameInvoiceNumber(left: string, right: string): boolean {
+  const key = invoiceNumberKey(left);
+  if (key === "") return casefold(pyStrip(left)) === casefold(pyStrip(right));
+  // Also match with separators removed but zeros kept, so "AS-2026-0114" matches a re-typed "AS20260114".
+  return key === invoiceNumberKey(right) || compactInvoiceNumber(left) === compactInvoiceNumber(right);
+}
+const DAY_MS = 86_400_000;
+const isoDay = (value: string | null | undefined) => (value && /^\d{4}-\d{2}-\d{2}/.test(value) ? Date.parse(`${value.slice(0, 10)}T00:00:00Z`) : Number.NaN);
+const amountText = (cents: number) => `€${pythonGrouped2(cents / 100)}`;
+
 /** Python's f"{x:.2f}": exact binary value, ties (x*8 odd) round half to even, where toFixed rounds up. */
 export function pythonFixed2(value: number): string {
   if (value >= 0 && Number.isInteger(value * 8) && (value * 8) % 2 === 1) {
@@ -102,8 +137,9 @@ export function assessPayment(input: RiskInput): Assessment {
 
   const accounts = [...input.previousAccounts].filter((account) => pyStrip(account)).map(normalizedAccount);
   const amounts = [...input.previousPaidAmountsCents].filter((amount) => amount > 0);
-  const paid = new Set([...input.previouslyPaidInvoices].map((value) => casefold(pyStrip(value))));
-  const open = new Set([...(input.otherOpenInvoices ?? [])].map((value) => casefold(pyStrip(value))));
+  const paidNumbers = [...input.previouslyPaidInvoices], openNumbers = [...(input.otherOpenInvoices ?? [])];
+  const paid = new Set(paidNumbers.map((value) => casefold(pyStrip(value))));
+  const open = new Set(openNumbers.map((value) => casefold(pyStrip(value))));
   const rejected = new Set([...(input.rejectedInvoices ?? [])].map((value) => casefold(pyStrip(value))));
   const signals: RiskSignal[] = [];
 
@@ -111,8 +147,20 @@ export function assessPayment(input: RiskInput): Assessment {
     signals.push({ code: "DUPLICATE_PAID_INVOICE", weight: 100, explanation: "This supplier's invoice number matches a previously paid invoice. A second payment must be blocked.", severity: "critical" });
   } else if (open.has(casefold(pyStrip(invoiceNumber)))) {
     signals.push({ code: "DUPLICATE_OPEN_INVOICE", weight: 100, explanation: "This supplier's invoice number matches another invoice that is already open or approved. Only one copy may be approved; reject one before continuing.", severity: "critical" });
-  } else if (rejected.has(casefold(pyStrip(invoiceNumber)))) {
-    signals.push({ code: "PREVIOUSLY_REJECTED_INVOICE", weight: 40, explanation: "A copy of this supplier invoice number was rejected before. Independently verify this resubmission before approval.", severity: "review" });
+  } else {
+    // Same number apart from formatting: likely the same invoice re-sent or re-typed. Not a hard block (two genuinely
+    // different numbers can share a key), but it needs independent verification, and approval refuses a second
+    // approved copy with the same key.
+    const key = invoiceNumberKey(invoiceNumber);
+    // A number with no letters or digits has no usable key and is only ever compared exactly.
+    const nearPaid = key === "" ? undefined : paidNumbers.find((value) => sameInvoiceNumber(invoiceNumber, value));
+    const nearOpen = nearPaid !== undefined || key === "" ? undefined : openNumbers.find((value) => sameInvoiceNumber(invoiceNumber, value));
+    if (nearPaid !== undefined || nearOpen !== undefined) {
+      const match = pyStrip((nearPaid ?? nearOpen)!);
+      signals.push({ code: "POSSIBLE_DUPLICATE_INVOICE", weight: 75, explanation: `Invoice number "${pyStrip(invoiceNumber)}" matches "${match}" from this supplier once letter case, spacing, punctuation and leading zeros are ignored, and that invoice is ${nearPaid !== undefined ? "already paid" : "already open or approved"}. It is probably the same invoice: before approval, an authorized reviewer must record a duplicate review confirming whether they are different invoices.`, severity: "critical" });
+    } else if (rejected.has(casefold(pyStrip(invoiceNumber))) || (key !== "" && [...rejected].some((value) => sameInvoiceNumber(invoiceNumber, value)))) {
+      signals.push({ code: "PREVIOUSLY_REJECTED_INVOICE", weight: 40, explanation: "A copy of this supplier invoice number was rejected before. Independently verify this resubmission before approval.", severity: "review" });
+    }
   }
   if (accounts.length) {
     const counts = new Map<string, number>();
@@ -144,6 +192,17 @@ export function assessPayment(input: RiskInput): Assessment {
   if (mismatches.includes("supplier_name")) {
     signals.push({ code: "SUPPLIER_NAME_MISMATCH", weight: 20, explanation: "The supplier name on the invoice differs from the selected supplier record.", severity: "review" });
   }
+  // Same supplier, exact same amount, issued within a few days under a different number: a note for the reviewer.
+  // Weight 0: it is shown as evidence but never changes the score or the workflow (recurring same-amount invoices are normal).
+  if (!signals.some((signal) => signal.code.includes("DUPLICATE"))) {
+    const day = isoDay(input.invoiceDate);
+    const twin = Number.isNaN(day) ? undefined : [...(input.otherOpenInvoiceDetails ?? [])].find((other) =>
+      other.amountCents === amountCents && !sameInvoiceNumber(invoiceNumber, other.invoiceNumber) &&
+      Math.abs(isoDay(other.invoiceDate) - day) <= SAME_AMOUNT_WINDOW_DAYS * DAY_MS);
+    if (twin) {
+      signals.push({ code: "SAME_AMOUNT_RECENT_INVOICE", weight: 0, explanation: `This supplier also has invoice "${pyStrip(twin.invoiceNumber)}" for the same amount (${amountText(amountCents)}) dated ${twin.invoiceDate.slice(0, 10)}, within ${SAME_AMOUNT_WINDOW_DAYS} days of this one. Check that this is not the same invoice under a new number.`, severity: "review" });
+    }
+  }
   const score = Math.min(100, signals.reduce((sum, signal) => sum + signal.weight, 0));
   const duplicate = signals.some((signal) => signal.code === "DUPLICATE_PAID_INVOICE" || signal.code === "DUPLICATE_OPEN_INVOICE");
   return {
@@ -152,6 +211,6 @@ export function assessPayment(input: RiskInput): Assessment {
     recommended_status: duplicate ? "blocked" : score >= 40 ? "needs_review" : "ready",
     signals,
     reason: signals[0]?.explanation ?? "Account, invoice reference and amount are consistent with the available historical data.",
-    kind: duplicate ? "duplicate" : signals.some((signal) => signal.code === "BANK_ACCOUNT_CHANGED" || signal.code === "BANK_ACCOUNT_VERIFIED_CHANGE") ? "iban" : signals.some((signal) => signal.code === "LARGE_AMOUNT_DEVIATION" || signal.code === "ELEVATED_AMOUNT") ? "amount" : signals.length ? "new" : "normal",
+    kind: duplicate ? "duplicate" : signals.some((signal) => signal.code === "POSSIBLE_DUPLICATE_INVOICE") ? "possible_duplicate" : signals.some((signal) => signal.code === "BANK_ACCOUNT_CHANGED" || signal.code === "BANK_ACCOUNT_VERIFIED_CHANGE") ? "iban" : signals.some((signal) => signal.code === "LARGE_AMOUNT_DEVIATION" || signal.code === "ELEVATED_AMOUNT") ? "amount" : signals.some((signal) => signal.weight > 0) ? "new" : "normal",
   };
 }

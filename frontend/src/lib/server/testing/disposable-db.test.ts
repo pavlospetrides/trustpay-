@@ -54,6 +54,44 @@ describe.skipIf(!disposableUrl)("disposable Supabase database", () => {
     expect((await sql("select decision,reason from public.payment_approvals a join public.invoices i on i.id=a.invoice_id where i.public_id=$1 and a.decision='rejected'", [id]))).toEqual([{ decision: "rejected", reason: "Synthetic fraud report from supplier" }]);
   });
 
+  it("requires an explicit duplicate review for normalisation-only matches (#37)", async () => {
+    const [org, maker, verifier, reviewer, approver] = [uuid(), uuid(), uuid(), uuid(), uuid()];
+    await seedMembers([[org, maker, "analyst"], [org, verifier, "analyst"], [org, reviewer, "analyst"], [org, approver, "approver"]], [[org, "Synthetic duplicate review test"]]);
+    await seedSupplierHistory(org, "DUP-SUP", "Synthetic duplicate supplier", 3);
+    const { call } = apiClient({ maker: { user: maker, org }, verifier: { user: verifier, org }, reviewer: { user: reviewer, org }, approver: { user: approver, org } });
+    const assess = async (id: string, number: string, date: string) => (await call("POST", "/api/v1/invoices/assess", "maker", { id, supplier_id: "DUP-SUP", invoice_number: number, amount_cents: 842000, creditor_account: syntheticIban(1), invoice_date: date })).body;
+    const verify = (id: string) => call("POST", `/api/v1/invoices/${id}/verify`, "verifier", { evidence_note: "Synthetic independent callback record" });
+    const approve = (id: string) => call("POST", `/api/v1/invoices/${id}/approve`, "approver");
+    const review = (id: string, who: string, decision: string, reason = "Supplier confirmed by phone, synthetic") => call("POST", `/api/v1/invoices/${id}/duplicate-review`, who, { decision, reason });
+
+    expect((await assess("DUP-BASE", "DUP-100", "2026-10-01")).risk).toBe(0);
+    expect((await approve("DUP-BASE")).body.status).toBe("approved");
+    // Exact copy: hard block, no review possible.
+    expect((await assess("DUP-EXACT", "dup-100", "2026-10-15")).status).toBe("blocked");
+    expect((await approve("DUP-EXACT")).status).toBe(403);
+    expect((await review("DUP-EXACT", "reviewer", "distinct")).status).toBe(403);
+    // Normalisation-only match against the approved invoice: a verification alone does not clear it; "duplicate" blocks it.
+    expect([(await assess("DUP-NEAR", "DUP 0100", "2026-11-01")).risk, (await verify("DUP-NEAR")).status]).toEqual([75, 200]);
+    expect((await approve("DUP-NEAR")).status).toBe(403);
+    expect((await call("GET", "/api/v1/invoices/DUP-NEAR/duplicate-review", "maker")).body.matches).toEqual([expect.objectContaining({ kind: "invoice", id: "DUP-BASE", decision: null })]);
+    expect((await review("DUP-NEAR", "reviewer", "duplicate")).body.status).toBe("blocked");
+    expect((await approve("DUP-NEAR")).status).toBe(403);
+    // Normalisation-only match against paid history.
+    expect((await assess("DUP-PAID", "hist 0", "2026-11-15")).risk).toBe(75);
+    expect([(await verify("DUP-PAID")).status, (await approve("DUP-PAID")).status]).toEqual([200, 403]);
+    // A pair confirmed as genuinely different proceeds through normal approval; the maker cannot review their own invoice.
+    expect((await assess("DUP-DISTINCT", "DUP_100", "2026-12-01")).risk).toBe(75);
+    expect((await review("DUP-DISTINCT", "maker", "distinct")).status).toBe(403);
+    expect((await review("DUP-DISTINCT", "reviewer", "distinct")).status).toBe(200);
+    expect((await review("DUP-DISTINCT", "reviewer", "duplicate")).status).toBe(409);
+    expect((await verify("DUP-DISTINCT")).status).toBe(200);
+    expect([(await approve("DUP-DISTINCT")).status, (await call("GET", "/api/v1/invoices/DUP-DISTINCT", "maker")).body.status]).toEqual([200, "approved"]);
+    expect(await sql("select r.decision,r.reason,r.decided_by::text as decided_by from public.duplicate_reviews r join public.invoices i on i.id=r.invoice_id where i.public_id=$1", ["DUP-DISTINCT"])).toEqual([{ decision: "distinct", reason: "Supplier confirmed by phone, synthetic", decided_by: reviewer }]);
+    expect((await call("GET", "/api/v1/audit", "maker")).body.filter((event: { action: string }) => event.action === "DUPLICATE_REVIEW")).toHaveLength(2);
+    // Decisions are append-only.
+    await expect(sql("delete from public.duplicate_reviews where organization_id=$1", [org])).rejects.toThrow();
+  });
+
   it("takes a synthetic PDF through intake, review, risk and approval", async () => {
     const [orgA, orgB, maker, outsider, verifier, approver] = [uuid(), uuid(), uuid(), uuid(), uuid(), uuid()];
     await seedMembers([[orgA, maker, "analyst"], [orgB, outsider, "analyst"], [orgA, verifier, "analyst"], [orgA, approver, "approver"]], [[orgA, "Phase 2 synthetic test"], [orgB, "Phase 2 synthetic test"]]);

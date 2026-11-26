@@ -14,11 +14,26 @@ const keys = { encryption: Buffer.from(fixtures.keys.encryption_b64, "base64"), 
 const protector = new AccountProtector(keys.encryption, keys.fingerprint);
 const outcome = (work: () => unknown) => { try { return { output: work() }; } catch (error) { return { error: (error as Error).message }; } };
 
+// Deliberate policy changes since the Python backend, each with its reason and the signal it now produces.
+// Every other recorded case must still match character for character.
+const INTENDED_RISK_CHANGES: Record<string, { reason: string; signal: string }> = {
+  "Python keeps a byte-order mark": { reason: "Review item 6: an invisible byte-order mark no longer makes a paid invoice number look new.", signal: "POSSIBLE_DUPLICATE_INVOICE" },
+};
+
 describe("Python parity: risk policy", () => {
-  it.each(fixtures.risk.map((item) => [item.name, item] as const))("%s", (_, item) => {
+  it.each(fixtures.risk.map((item) => [item.name, item] as const))("%s", (name, item) => {
     const input = item.input;
     const result = outcome(() => assessPayment({ invoiceNumber: input.invoice_number, currentAccount: input.current_account, amountCents: input.amount_cents, previousAccounts: input.previous_accounts, previousPaidAmountsCents: input.previous_paid_amounts_cents, previouslyPaidInvoices: input.previously_paid_invoices }));
+    const change = INTENDED_RISK_CHANGES[name];
+    if (change) {
+      expect(result).not.toEqual({ output: (item as { output?: unknown }).output });
+      expect((result as { output: { signals: { code: string }[] } }).output.signals.map((signal) => signal.code)).toContain(change.signal);
+      return;
+    }
     expect(result).toEqual("error" in item ? { error: item.error } : { output: item.output });
+  });
+  it("lists only intended changes that still exist in the fixtures", () => {
+    expect(Object.keys(INTENDED_RISK_CHANGES).filter((name) => !fixtures.risk.some((item) => item.name === name))).toEqual([]);
   });
 });
 
