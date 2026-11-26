@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { assessPayment, identityMismatches } from "./risk";
+import { assessPayment, identityMismatches, invoiceNumberKey, sameInvoiceNumber } from "./risk";
 
 const base = {
   invoiceNumber: "ABC-003",
@@ -26,6 +26,7 @@ describe("Python risk engine parity", () => {
 
   it("normalizes account whitespace and invoice case", () => {
     expect(assessPayment({ ...base, currentAccount: "syn thetic-1842" }).score).toBe(0);
+    expect(assessPayment({ ...base, currentAccount: "SYN-THETIC1842" }).score).toBe(0);
     expect(assessPayment({ ...base, invoiceNumber: "  abc-001 " }).recommended_status).toBe("blocked");
   });
 
@@ -62,5 +63,60 @@ describe("Python risk engine parity", () => {
     expect(vat).toMatchObject({ score: 50, recommended_status: "needs_review" });
     expect(vat.signals[0].code).toBe("SUPPLIER_IDENTITY_MISMATCH");
     expect(assessPayment({ ...base, identityMismatches: ["supplier_name"] })).toMatchObject({ score: 20, recommended_status: "ready" });
+  });
+
+  describe("invoice number matching (review item 6)", () => {
+    it("ignores letter case, spacing, punctuation, invisible marks and leading zeros", () => {
+      for (const variant of ["AS-2026-114", "as2026114", "AS 2026 114", "AS-2026-0114", "AS/2026/114", "\ufeffAS-2026-114", "ＡＳ-2026-114"]) expect(invoiceNumberKey(variant)).toBe("as2026114");
+      expect(invoiceNumberKey("INV-0001")).toBe(invoiceNumberKey("inv 1"));
+      expect(invoiceNumberKey("INV-0")).toBe("inv0");
+    });
+    it("matches a copy re-typed without its separators, keeping the zeros inside the number", () => {
+      expect(sameInvoiceNumber("AS-2026-0114", "AS20260114")).toBe(true);
+      expect(sameInvoiceNumber("AS20260114", "as-2026-0114")).toBe(true);
+      expect(assessPayment({ ...base, invoiceNumber: "AS20260114", otherOpenInvoices: ["AS-2026-0114"] }).signals.map((signal) => signal.code)).toContain("POSSIBLE_DUPLICATE_INVOICE");
+    });
+    it("keeps genuinely different numbers apart", () => {
+      expect(sameInvoiceNumber("INV-1014", "INV-114")).toBe(false);
+      expect(sameInvoiceNumber("INV-114", "INV-115")).toBe(false);
+      expect(sameInvoiceNumber("A-114", "B-114")).toBe(false);
+      // Numbers with no letters or digits have no key and only match exactly.
+      expect(sameInvoiceNumber("---", "///")).toBe(false);
+      expect(sameInvoiceNumber("---", " --- ")).toBe(true);
+    });
+    it("flags a reformatted copy of a paid invoice for verification without hard-blocking it", () => {
+      const result = assessPayment({ ...base, invoiceNumber: "ABC 0001" });
+      expect(result).toMatchObject({ score: 75, recommended_status: "needs_review", kind: "possible_duplicate", level: "critical" });
+      expect(result.signals[0].code).toBe("POSSIBLE_DUPLICATE_INVOICE");
+      expect(result.signals[0].explanation).toContain('"ABC-001"');
+      expect(result.signals[0].explanation).toContain("already paid");
+    });
+    it("flags a reformatted copy of an open invoice, and keeps exact copies as hard blocks", () => {
+      const near = assessPayment({ ...base, invoiceNumber: "abc/0009", otherOpenInvoices: ["ABC-009"] });
+      expect(near.signals.map((signal) => signal.code)).toEqual(["POSSIBLE_DUPLICATE_INVOICE"]);
+      expect(near.signals[0].explanation).toContain("already open or approved");
+      expect(assessPayment({ ...base, invoiceNumber: "ABC-009", otherOpenInvoices: ["abc-009"] })).toMatchObject({ score: 100, recommended_status: "blocked", kind: "duplicate" });
+      expect(assessPayment({ ...base, invoiceNumber: "ABC-001" }).signals[0].code).toBe("DUPLICATE_PAID_INVOICE");
+    });
+    it("treats a reformatted resubmission of a rejected invoice like any resubmission", () => {
+      expect(assessPayment({ ...base, invoiceNumber: "ABC 77", rejectedInvoices: ["abc-077"] }).signals.map((signal) => signal.code)).toEqual(["PREVIOUSLY_REJECTED_INVOICE"]);
+    });
+    it("adds a weight-0 note for the same amount under a different number within 7 days", () => {
+      const other = { invoiceNumber: "ABC-050", amountCents: 700_000, invoiceDate: "2026-11-20" };
+      const result = assessPayment({ ...base, invoiceDate: "2026-11-25", otherOpenInvoiceDetails: [other] });
+      expect(result).toMatchObject({ score: 0, recommended_status: "ready", kind: "normal" });
+      expect(result.signals[0]).toMatchObject({ code: "SAME_AMOUNT_RECENT_INVOICE", weight: 0, severity: "review" });
+      expect(result.signals[0].explanation).toContain("€7,000.00");
+      expect(result.signals[0].explanation).toContain("2026-11-20");
+      const codes = (changes: Partial<Parameters<typeof assessPayment>[0]>) => assessPayment({ ...base, invoiceDate: "2026-11-25", otherOpenInvoiceDetails: [other], ...changes }).signals.map((signal) => signal.code);
+      expect(codes({ invoiceDate: "2026-11-28" })).toEqual([]); // 8 days apart
+      expect(codes({ otherOpenInvoiceDetails: [{ ...other, amountCents: 700_001 }] })).toEqual([]);
+      expect(codes({ invoiceDate: null })).toEqual([]);
+      // The same invoice number is the duplicate rules' job, not this note.
+      expect(codes({ otherOpenInvoiceDetails: [{ ...other, invoiceNumber: "abc 003" }] })).toEqual([]);
+      // It never displaces the main reason: the changed account stays first and the score stays 75.
+      const changed = assessPayment({ ...base, currentAccount: "SYNTHETIC-9077", invoiceDate: "2026-11-25", otherOpenInvoiceDetails: [other] });
+      expect([changed.score, changed.signals.map((signal) => signal.code)]).toEqual([75, ["BANK_ACCOUNT_CHANGED", "SAME_AMOUNT_RECENT_INVOICE"]]);
+    });
   });
 });

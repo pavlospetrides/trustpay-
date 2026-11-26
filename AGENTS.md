@@ -19,4 +19,6 @@ Localization is part of every authorized task that changes user-facing behavior,
 
 For each affected surface, review the English and all three translations in context against [the glossary and style guide](docs/localization.md). Check intent, grammar, tone, plural forms, accessibility, and layout at desktop and mobile widths. Rewrite awkward wording. Check LTR and Hebrew RTL, including mixed-direction values, keyboard focus, and text wrapping. Review both UI and backend messages. For a behavior-only change, keep unrelated catalog entries untouched.
 
+Keep server response text canonical, including English errors used by HTTP status mapping. Localize the displayed message at the UI presentation boundary.
+
 **Definition of done:** all affected messages are available in four languages, linguistically reviewed, and synchronized. The change follows the glossary, works in LTR and Hebrew RTL, contains no new hardcoded user-facing text, passes the relevant localization checks and preserves existing behavior. Run `npm run i18n:check` through lint and `npm run test:i18n:e2e` for layout or language behavior. After reviewing all translations for changed English messages, run `npm run i18n:review` and include the updated review manifest. Report any unmet requirement explicitly.

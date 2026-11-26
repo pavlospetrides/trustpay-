@@ -11,14 +11,11 @@ const forms = ["one", "two", "few", "many", "other"];
 const approvedEnglish = { el: new Set(["kb", "email", "supabase-postgresql"]), ru: new Set(["supabase-postgresql"]), he: new Set(["supabase-postgresql"]) };
 const safeVisible = new Set(["TrustPay", "TrustPay AI", "AI", "Jinius", "UTC", "●"]);
 const externalCopy = new Set(["invalid-login-credentials", "email-not-confirmed", "database-unavailable"]);
-const internalErrors = new Set([
-  "Vision provider unavailable", "Unmasked account evidence is not allowed", "Explanation provider unavailable",
-  "TRUSTPAY_BACKEND must be sqlite or postgres", "Set TRUSTPAY_BACKEND=postgres to use TRUSTPAY_DATABASE_URL",
-  "TRUSTPAY_DATABASE_URL is required in PostgreSQL mode", "Supabase authentication is not configured",
-  "SUPABASE_URL must use HTTPS except local development", "Official Jinius sandbox API contract has not been supplied",
-  "Invalid encrypted data", "Account encryption and fingerprint keys must be at least 32 bytes",
-  "IBAN keys must be base64-encoded 32-byte values", "A 32-byte encryption key is required",
-]);
+// Keep translations for older intake copy and historical API responses.
+const historicalCopy = [
+  "vision-model", "local-pdf-text", "visual-extraction-is-unavailable-enter-the-fields-manually",
+  "choose-a-pdf-png-or-jpeg-invoice", "only-pdf-png-or-jpeg-invoices-with-matching", "pdf-must-have-1-5-unencrypted-pages",
+];
 const visibleAttributes = new Set(["alt", "aria-description", "aria-label", "placeholder", "title", "description", "message", "confirmLabel"]);
 const namedVariables = /\{([a-zA-Z]\w*)\}/g;
 const normalize = text => text.replace(/\s+/g, " ").trim();
@@ -108,7 +105,13 @@ function jsxExpressionText(node, filename, report, asAttribute = false) {
 
 function validateSources(english) {
   const failures = [];
-  const references = new Set(externalCopy);
+  const references = new Set([...externalCopy, ...historicalCopy]);
+  const canonicalKeys = new Map();
+  for (const [key, text] of Object.entries(english)) {
+    if (typeof text !== "string") continue;
+    if (!canonicalKeys.has(text)) canonicalKeys.set(text, []);
+    canonicalKeys.get(text).push(key);
+  }
   const src = join(root, "src");
   for (const file of readdirSync(src, { recursive: true })) {
     if (!/\.(ts|tsx)$/.test(file) || /\.(?:test|d)\.ts$/.test(file)) continue;
@@ -121,6 +124,13 @@ function validateSources(english) {
     };
     const walk = node => {
       if (isLiteral(node) && Object.hasOwn(english, node.text)) references.add(node.text);
+      if (userFacingServer) {
+        // Canonical server text can share a catalog entry without importing translations.
+        const source = isLiteral(node) ? node.text : ts.isTemplateExpression(node)
+          ? node.head.text + node.templateSpans.map((span, i) => "{p" + i + "}" + span.literal.text).join("")
+          : undefined;
+        for (const key of canonicalKeys.get(source) ?? []) references.add(key);
+      }
       if (ts.isJsxText(node)) {
         const copy = normalize(node.getFullText(tree));
         if (containsLetters(copy) && !safeVisible.has(copy)) report(node, "visible JSX text: " + copy);
@@ -135,6 +145,7 @@ function validateSources(english) {
       if (ts.isCallExpression(node) && ts.isIdentifier(node.expression)) {
         const fn = node.expression.text;
         const [name, values] = node.arguments;
+        if (userFacingServer && fn === "sourceText") report(node, "localize canonical server messages at the client presentation boundary");
         if (["t", "p", "sourceText"].includes(fn) && name && isLiteral(name)) {
           const base = english[name.text];
           if (!Object.hasOwn(english, name.text)) report(name, "unknown localization key " + name.text);
@@ -145,15 +156,6 @@ function validateSources(english) {
           }
         }
         if (["setError", "setMessage"].includes(fn) && name) jsxExpressionText(name, full, report);
-      }
-      if (userFacingServer && ts.isNewExpression(node) &&
-          ["Error", "StatusError", "ProviderUnavailable"].includes(node.expression.getText(tree))) {
-        for (const argument of node.arguments ?? []) {
-          if (!isLiteral(argument) || !internalErrors.has(argument.text)) jsxExpressionText(argument, full, report);
-        }
-      }
-      if (userFacingServer && ts.isPropertyAssignment(node) && ["detail", "explanation", "next_step", "warning"].includes(node.name.getText(tree))) {
-        jsxExpressionText(node.initializer, full, report);
       }
       ts.forEachChild(node, walk);
     };
@@ -194,4 +196,3 @@ if (failures.length) {
 } else {
   console.log("Localization valid: " + Object.keys(catalogs.en).length + " keys across " + languages.join(", "));
 }
-

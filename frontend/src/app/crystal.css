@@ -361,6 +361,17 @@ input:focus, select:focus, textarea:focus { border-color: var(--cyan); box-shado
 .intake-fields label { position: relative; }
 .intake-fields .field-uncertain input { border-color: var(--amber); box-shadow: inset 0 0 0 1px var(--amber); }
 .intake-fields .field-uncertain small { color: var(--amber); }
+.intake-evidence-section { margin-top: 24px; border-top: 1px solid rgba(24,54,76,.12); padding-top: 18px; }
+.intake-evidence-section h3 { margin: 0 0 10px; font-size: 1rem; }
+.intake-evidence-section ul { margin: 0; padding-inline-start: 20px; }
+.intake-evidence-section li { margin: 5px 0; }
+.intake-lines-scroll { overflow-x: auto; }
+.intake-lines-scroll table { width: 100%; border-collapse: collapse; font-size: .85rem; }
+.intake-lines-scroll th, .intake-lines-scroll td { text-align: left; padding: 9px; border-bottom: 1px solid rgba(24,54,76,.12); }
+.intake-preview { display: block; width: 100%; min-height: 320px; max-height: 540px; object-fit: contain; border: 1px solid rgba(24,54,76,.12); margin: 12px 0; }
+.field-evidence { display: block; overflow-wrap: anywhere; color: var(--muted); }
+.intake-resolution { display: flex; align-items: flex-start; gap: 10px; margin-top: 16px; }
+.intake-resolution input[type="checkbox"] { width: 18px; height: 18px; flex: 0 0 18px; margin: 2px 0 0; }
 .intake-actions { display: flex; flex-wrap: wrap; gap: 10px; margin-top: 16px; }
 .assessment-history ol { list-style: none; padding: 0; margin: 18px 0 0; display: grid; gap: 12px; }
 .assessment-history li { display: grid; gap: 5px; padding: 14px; border: 1px solid var(--line); border-radius: 13px; background: var(--field); }

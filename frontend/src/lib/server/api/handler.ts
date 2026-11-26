@@ -1,13 +1,14 @@
-import { sourceText } from "../../i18n/core";
 import { randomUUID } from "node:crypto";
 import { z, ZodError } from "zod";
 import type { Invoice } from "../../types";
 import { DemoStore } from "../database/demo-store";
+import { reviewInvoiceAccounting } from "../accounting/analyze";
 import { PgStore } from "../database/postgres-store";
 import { IntakeStore } from "../invoices/intake-store";
 import { PrivateInvoiceStorage } from "../invoices/private-storage";
 import { readDocument, MAX_DOCUMENT_BYTES } from "../invoices/document";
 import { reviewedInvoiceSchema } from "../invoices/extraction";
+import { universalDocumentSchema } from "../invoices/universal";
 import { JiniusSync } from "../jinius/sync";
 import { authenticateRequest } from "../auth/request";
 import { StatusError } from "./status-error";
@@ -19,51 +20,54 @@ export type ApiContext =
 
 const headers = { "Cache-Control": "no-store", "X-Content-Type-Options": "nosniff" };
 const json = (body: unknown, status = 200) => Response.json(body, { status, headers });
-const missing = () => json({ detail: sourceText("not-found") }, 404);
+const missing = () => json({ detail: "Not found" }, 404);
 const uuid = z.uuid();
 const isoDate = z.string().refine((value) => /^\d{4}-\d{2}-\d{2}$/.test(value) && !Number.isNaN(Date.parse(`${value}T00:00:00Z`)) && new Date(`${value}T00:00:00Z`).toISOString().slice(0, 10) === value);
 // Account whitespace: JavaScript \s minus U+FEFF is exactly what both the PostgreSQL IBAN check and the demo normaliser strip.
 // node:sqlite and PostgreSQL both mishandle NUL in text: SQLite truncates it on read, PostgreSQL rejects it.
-const text = (min: number, max: number) => z.string().min(min).max(max).refine((value) => !value.includes("\u0000"), sourceText("text-must-not-contain-nul-characters"));
-const assessmentInput = z.strictObject({ id: z.string().min(3).max(64).regex(/^[A-Za-z0-9_-]+$/), supplier_id: text(3, 32), invoice_number: text(2, 70), amount_cents: z.number().int().positive().max(100_000_000_000), creditor_account: text(4, 64).regex(/^(?:[A-Za-z0-9-]|[^\S\uFEFF])+$/, sourceText("account-may-contain-only-letters-digits-whitespace-and")), invoice_date: isoDate });
-const reviewInput = z.strictObject({ fields: reviewedInvoiceSchema, supplier_id: z.string().nullable(), create_new_supplier: z.boolean() });
+const text = (min: number, max: number) => z.string().min(min).max(max).refine((value) => !value.includes("\u0000"), "Text must not contain NUL characters");
+const assessmentInput = z.strictObject({ id: z.string().min(3).max(64).regex(/^[A-Za-z0-9_-]+$/), supplier_id: text(3, 32), invoice_number: text(2, 70), amount_cents: z.number().int().positive().max(100_000_000_000), creditor_account: text(4, 64).regex(/^(?:[A-Za-z0-9-]|[^\S\uFEFF])+$/, "Account may contain only letters, digits, whitespace and dashes"), invoice_date: isoDate });
+const reviewInput = z.strictObject({ fields: reviewedInvoiceSchema, supplier_id: z.string().nullable(), create_new_supplier: z.boolean(), reviewed_document: universalDocumentSchema.nullable().optional(), classification_override_reason: text(20, 500).nullable().optional(), single_invoice_confirmed: z.boolean().optional() });
 const verifyInput = z.strictObject({ evidence_note: text(12, 500) });
 const rejectInput = z.strictObject({ reason: text(12, 500) });
+const duplicateReviewInput = z.strictObject({ decision: z.enum(["distinct", "duplicate"]), reason: text(12, 500) });
 const resolveInput = z.strictObject({ supplier_id: text(1, 32) });
 const invoiceOutput = z.object({ id: z.string(), supplier_id: z.string(), amount_cents: z.number().int(), risk: z.number().int().min(0).max(100), iban: z.string().startsWith("••••"), status: z.enum(["ready", "needs_review", "blocked", "hold", "approved", "rejected"]), signals: z.array(z.object({ code: z.string(), explanation: z.string() }).passthrough()) }).passthrough();
 const invoiceJson = (value: Invoice, status = 200) => json(invoiceOutput.parse(value), status);
 
 function errorResponse(error: unknown, mode: ApiContext["mode"]): Response {
   if (error instanceof StatusError) return json({ detail: error.message }, error.status);
-  if (error instanceof ZodError || error instanceof SyntaxError) return json({ detail: error instanceof ZodError ? error.issues.map((issue) => ({ msg: issue.message, loc: issue.path })) : sourceText("malformed-json") }, 422);
+  if (error instanceof ZodError || error instanceof SyntaxError) return json({ detail: error instanceof ZodError ? error.issues.map((issue) => ({ msg: issue.message, loc: issue.path })) : "Malformed JSON" }, 422);
   const message = error instanceof Error ? error.message : "Request failed";
   const code = error instanceof Error && "code" in error ? String(error.code) : "";
-  if (code === "23505") return json({ detail: sourceText("record-already-exists") }, 409);
-  if (code === "23503" || code === "22P02") return json({ detail: sourceText("invalid-reference") }, 422);
+  if (code === "23505") return json({ detail: "Record already exists" }, 409);
+  if (code === "23503" || code === "22P02") return json({ detail: "Invalid reference" }, 422);
   if (/Authentication required|Invalid or expired access token/.test(message)) return json({ detail: message }, 401);
   if (/X-Organization-Id is required|Invalid organization ID/.test(message)) return json({ detail: message }, 400);
   if (/No organization membership|No membership in requested organization/.test(message)) return json({ detail: message }, 403);
-  if (/Authentication service|Database unavailable|Private storage|Private invoice storage|Private document|CA certificate|PostgreSQL mode requires/.test(message)) return json({ detail: message }, 503);
+  if (/Authentication service|Database unavailable|Private storage|Private invoice storage|Private document|CA certificate|PostgreSQL mode requires|OpenAI extraction is not configured for this environment/.test(message)) return json({ detail: message }, 503);
   if (/limit reached|retry limit/.test(message)) return json({ detail: message }, 429);
   if (/not found|Unknown demo supplier|Supplier not found|Assessment not found/.test(message)) return json({ detail: message }, 404);
   if (/already exists|Idempotency key already used/.test(message)) return json({ detail: message }, 409);
-  if (/Role|Only organization owners|cannot independently|Maker-checker|needs independent verification|requires independent verification|already been recorded|not ready|cannot be verified|cannot be placed|cannot be approved|cannot be released|are final|unavailable in PostgreSQL mode|requires PostgreSQL mode/.test(message)) return json({ detail: message }, mode === "sqlite" ? 409 : 403);
+  // SQLite mode keeps Python's 409 for both groups (parity fixtures); PostgreSQL separates "not allowed for you" (403) from "not allowed in this state" (409).
+  if (/Role|Only organization owners|cannot independently|Maker-checker|cannot review their own|unavailable in PostgreSQL mode|requires PostgreSQL mode/.test(message)) return json({ detail: message }, mode === "sqlite" ? 409 : 403);
+  if (/needs independent verification|requires independent verification|already been recorded|not ready|cannot be verified|cannot be placed|cannot be approved|cannot be released|cannot be reviewed for duplicates|are final/.test(message)) return json({ detail: message }, 409);
   if (/Invalid|valid|must|Only|Select|Review|cannot|is required|are required|evidence reference|already been reviewed|Unknown assessment|could not be read|unsupported|exceeds|outside|unknown|malformed/.test(message)) return json({ detail: message }, 422);
   console.error(`TrustPay API error: ${error instanceof Error ? error.constructor.name : "UnknownError"}`);
-  return json({ detail: sourceText("internal-server-error") }, 500);
+  return json({ detail: "Internal server error" }, 500);
 }
 
 // Counts bytes as they arrive, so a missing or false Content-Length cannot make the server buffer an unbounded body.
 async function boundedBody(request: Request, limit: number): Promise<Buffer> {
   const length = Number(request.headers.get("Content-Length") || 0);
-  if (length > limit) throw new Error(sourceText("invoice-document-exceeds-the-10-mb-limit"));
+  if (length > limit) throw new Error("Invoice document exceeds the 10 MB limit");
   if (!request.body) return Buffer.alloc(0);
   const reader = request.body.getReader();
   const chunks: Uint8Array[] = [];
   let total = 0;
   for (let part = await reader.read(); !part.done; part = await reader.read()) {
     total += part.value.byteLength;
-    if (total > limit) { await reader.cancel(); throw new Error(sourceText("invoice-document-exceeds-the-10-mb-limit")); }
+    if (total > limit) { await reader.cancel(); throw new Error("Invoice document exceeds the 10 MB limit"); }
     chunks.push(part.value);
   }
   return Buffer.concat(chunks);
@@ -73,8 +77,8 @@ async function uploadFile(request: Request): Promise<{ data: Buffer; contentType
   const body = await boundedBody(request, MAX_DOCUMENT_BYTES + 100_000);
   const form = await new Response(new Uint8Array(body), { headers: { "Content-Type": request.headers.get("Content-Type") ?? "" } }).formData();
   const file = form.get("file");
-  if (!(file instanceof File)) throw new Error(sourceText("a-file-is-required"));
-  if (file.size > MAX_DOCUMENT_BYTES) throw new Error(sourceText("invoice-document-exceeds-the-10-mb-limit"));
+  if (!(file instanceof File)) throw new Error("A file is required");
+  if (file.size > MAX_DOCUMENT_BYTES) throw new Error("Invoice document exceeds the 10 MB limit");
   return { data: Buffer.from(await file.arrayBuffer()), contentType: file.type };
 }
 
@@ -87,14 +91,14 @@ export async function handleApiRequest(request: Request, segments: string[], con
     const method = request.method;
     if (segments.length === 1 && segments[0] === "health" && method === "GET") {
       if (context.mode === "postgres") await context.pg.health();
-      return json({ status: "ok", mode: context.mode === "postgres" ? "supabase-postgres" : "synthetic-local-demo", payment_initiation: false, jinius_connection: context.mode === "postgres" ? "disconnected" : "mock", risk_model: "auditable-rules-v1", invoice_reader: context.mode === "postgres" && context.aiEnabled ? "openai_vision" : "local_pdf_text" });
+      return json({ status: "ok", mode: context.mode === "postgres" ? "supabase-postgres" : "synthetic-local-demo", payment_initiation: false, jinius_connection: context.mode === "postgres" ? "disconnected" : "mock", risk_model: "auditable-rules-v1", invoice_reader: context.mode === "postgres" && context.aiEnabled ? process.env.TRUSTPAY_INVOICE_READER === "ocr" ? "openai_ocr_text" : "openai_vision" : "local_pdf_text" });
     }
     if (segments[0] !== "v1") return missing();
     const path = segments.slice(1);
     if (path.join("/") === "me/organizations" && method === "GET") {
       if (context.mode === "sqlite") return json([{ id: "asteria-demo", name: "Asteria synthetic demo", role: "demo" }]);
       const token = request.headers.get("Authorization");
-      if (!token?.startsWith("Bearer ")) throw new Error(sourceText("authentication-required"));
+      if (!token?.startsWith("Bearer ")) throw new Error("Authentication required");
       return json(await context.pg.memberships(await context.verifyToken(token.slice(7).trim())));
     }
     const principal = context.mode === "postgres" ? await authorized(request, context) : null;
@@ -105,10 +109,18 @@ export async function handleApiRequest(request: Request, segments: string[], con
     }
     if (path.length === 2 && path[0] === "invoices" && method === "GET") return invoiceJson(context.mode === "sqlite" ? context.demo.invoice(path[1]) : await context.pg.invoice(path[1], principal!));
     if (path.length >= 3 && path[0] === "invoices" && path[2] === "assessments" && method === "GET") {
-      if (context.mode === "sqlite") return json({ detail: sourceText("assessment-history-requires-postgresql-mode") }, 404);
+      if (context.mode === "sqlite") return json({ detail: "Assessment history requires PostgreSQL mode" }, 404);
       const history = await context.pg.assessmentHistory(path[1], principal!);
       if (path.length === 3) return json(history);
-      if (path.length === 4) return history.find((item) => item.id === uuid.parse(path[3])) ? json(history.find((item) => item.id === path[3])) : json({ detail: sourceText("assessment-not-found") }, 404);
+      if (path.length === 4) return history.find((item) => item.id === uuid.parse(path[3])) ? json(history.find((item) => item.id === path[3])) : json({ detail: "Assessment not found" }, 404);
+    }
+    // Possible duplicates found only after invoice-number normalisation: list them, or record an explicit decision.
+    if (path.length === 3 && path[0] === "invoices" && path[2] === "duplicate-review") {
+      if (method === "GET") return json(context.mode === "sqlite" ? context.demo.duplicateReview(path[1]) : await context.pg.duplicateReview(path[1], principal!));
+      if (method === "POST") {
+        const input = duplicateReviewInput.parse(await request.json());
+        return invoiceJson(context.mode === "sqlite" ? context.demo.reviewDuplicate(path[1], input.decision, input.reason) : await context.pg.reviewDuplicate(path[1], input.decision, input.reason, principal!));
+      }
     }
     if (path.length === 3 && path[0] === "invoices" && (TRANSITION_ACTIONS as readonly string[]).includes(path[2]) && method === "POST") {
       const action = path[2] as TransitionAction;
@@ -116,10 +128,10 @@ export async function handleApiRequest(request: Request, segments: string[], con
       return invoiceJson(context.mode === "sqlite" ? context.demo.transition(path[1], action, note) : await context.pg.transition(path[1], action, note, principal!));
     }
     if (path.length >= 3 && path[0] === "invoices" && path[2] === "documents") {
-      if (context.mode === "sqlite") return method === "GET" && path.length === 3 ? json([]) : json({ detail: sourceText("private-document-storage-requires-postgresql-mode") }, 403);
+      if (context.mode === "sqlite") return method === "GET" && path.length === 3 ? json([]) : json({ detail: "Private document storage requires PostgreSQL mode" }, 403);
       if (path.length === 3 && method === "GET") return json(await context.pg.documentList(path[1], principal!));
       if (path.length === 3 && method === "POST") {
-        if (!["owner", "admin", "analyst"].includes(principal!.role)) throw new Error(sourceText("role-cannot-upload-invoice-documents"));
+        if (!["owner", "admin", "analyst"].includes(principal!.role)) throw new Error("Role cannot upload invoice documents");
         await context.pg.invoice(path[1], principal!);
         const file = await uploadFile(request);
         const document = await readDocument(file.data, file.contentType);
@@ -136,21 +148,23 @@ export async function handleApiRequest(request: Request, segments: string[], con
         return new Response(new Uint8Array(data), { status: 200, headers: { ...headers, "Content-Type": record.content_type, "Content-Disposition": "attachment" } });
       }
     }
+    // Accounting review (review item 11): stateless, deterministic suggestions; nothing is stored or posted.
+    if (path.join("/") === "accounting/review" && method === "POST") return json(reviewInvoiceAccounting(await request.json()));
     if (path.join("/") === "suppliers" && method === "GET") return json(context.mode === "sqlite" ? context.demo.suppliers() : await context.pg.suppliers(principal!));
     if (path.join("/") === "audit" && method === "GET") return json(context.mode === "sqlite" ? context.demo.audit() : await context.pg.audit(principal!));
-    if (path.join("/") === "integrations" && method === "GET") return json(context.mode === "sqlite" ? { jinius: { status: "mock", adapter: "DemoJiniusAdapter", source_label: sourceText("synthetic-jinius-demo"), live_connected: false, sync_available: false, next_step: sourceText("request-authorized-sandbox-documentation-and-scopes-from-organizers") }, bank_payment: { status: "disabled", payment_initiation: false } } : await context.jinius.integrations(principal!));
-    if (path.join("/") === "integrations/jinius/sync" && method === "POST") return context.mode === "sqlite" ? json({ detail: sourceText("integration-sync-requires-postgresql-mode") }, 403) : json(await context.jinius.run(principal!));
+    if (path.join("/") === "integrations" && method === "GET") return json(context.mode === "sqlite" ? { jinius: { status: "mock", adapter: "DemoJiniusAdapter", source_label: "Synthetic Jinius demo", live_connected: false, sync_available: false, next_step: "Request authorized sandbox documentation and scopes from organizers" }, bank_payment: { status: "disabled", payment_initiation: false } } : await context.jinius.integrations(principal!));
+    if (path.join("/") === "integrations/jinius/sync" && method === "POST") return context.mode === "sqlite" ? json({ detail: "Integration sync requires PostgreSQL mode" }, 403) : json(await context.jinius.run(principal!));
     if (path.length === 6 && path.slice(0, 3).join("/") === "integrations/jinius/imports" && path[5] === "resolve" && method === "POST") {
       const supplierId = resolveInput.parse(await request.json()).supplier_id;
-      if (context.mode === "sqlite") return json({ detail: sourceText("integration-imports-require-postgresql-mode") }, 403);
+      if (context.mode === "sqlite") return json({ detail: "Integration imports require PostgreSQL mode" }, 403);
       return invoiceJson(await context.jinius.resolve(path[3], path[4], supplierId, principal!));
     }
     if (path.join("/") === "demo/reset" && method === "POST") {
-      if (context.mode === "postgres") return json({ detail: sourceText("demo-reset-is-unavailable-in-postgresql-mode") }, 403);
-      context.demo.reset(); return json({ reset: true, warning: sourceText("synthetic-local-demo-only") });
+      if (context.mode === "postgres") return json({ detail: "Demo reset is unavailable in PostgreSQL mode" }, 403);
+      context.demo.reset(); return json({ reset: true, warning: "Synthetic local demo only" });
     }
     if (path[0] === "invoice-intakes") {
-      if (context.mode === "sqlite") return method === "GET" ? json({ detail: sourceText("invoice-intake-not-found") }, 404) : json({ detail: sourceText("invoice-intake-requires-postgresql-mode") }, 403);
+      if (context.mode === "sqlite") return method === "GET" ? json({ detail: "Invoice intake not found" }, 404) : json({ detail: "Invoice intake requires PostgreSQL mode" }, 403);
       if (path.length === 1 && method === "POST") {
         const file = await uploadFile(request);
         return json(await context.intake.create(file.data, file.contentType, principal!, request.headers.get("Idempotency-Key")), 201);
@@ -158,7 +172,7 @@ export async function handleApiRequest(request: Request, segments: string[], con
       if (path.length >= 2) {
         const id = uuid.parse(path[1]);
         if (path.length === 2 && method === "GET") return json(await context.intake.get(id, principal!));
-        if (path.length === 2 && method === "PATCH") { const input = reviewInput.parse(await request.json()); return json(await context.intake.review(id, input.fields, input.supplier_id, input.create_new_supplier, principal!)); }
+        if (path.length === 2 && method === "PATCH") { const input = reviewInput.parse(await request.json()); return json(await context.intake.review(id, input.fields, input.supplier_id, input.create_new_supplier, principal!, input.reviewed_document, input.classification_override_reason, input.single_invoice_confirmed)); }
         if (path.length === 3 && path[2] === "extract" && method === "POST") return json(await context.intake.retry(id, principal!));
         if (path.length === 3 && path[2] === "analyze" && method === "POST") return invoiceJson(await context.intake.analyze(id, principal!));
         if (path.length === 3 && path[2] === "document" && method === "GET") {

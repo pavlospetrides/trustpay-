@@ -26,7 +26,7 @@ describe.skipIf(!disposableUrl)("disposable Supabase database", () => {
     expect((await call("GET", path, "outsider")).status).toBe(404);
     expect((await call("GET", path, "outsiderA")).status).toBe(403);
     expect((await call("POST", `${path}/approve`, "maker")).status).toBe(403);
-    expect((await call("POST", `${path}/approve`, "approver")).status).toBe(403);
+    expect((await call("POST", `${path}/approve`, "approver")).status).toBe(409);
     expect((await call("POST", `${path}/verify`, "verifier", { evidence_note: "Synthetic independent callback record" })).status).toBe(200);
     expect((await call("POST", `${path}/hold`, "verifier")).body.status).toBe("hold");
     expect((await call("POST", `${path}/release`, "maker")).status).toBe(403);
@@ -41,7 +41,7 @@ describe.skipIf(!disposableUrl)("disposable Supabase database", () => {
     expect([copy.status, copy.body.risk, copy.body.status]).toEqual([201, 100, "blocked"]);
     // Even if a copy slipped through before screening existed, approval re-checks and refuses it.
     await sql("update public.invoices set status='ready', verified_by=$1 where public_id=$2", [verifier, `${id}-COPY`]);
-    expect((await call("POST", `/api/v1/invoices/${id}-COPY/approve`, "approver")).status).toBe(403);
+    expect((await call("POST", `/api/v1/invoices/${id}-COPY/approve`, "approver")).status).toBe(409);
     // A later invoice to the verified account is trusted (+25, ready) only while that verification stands.
     const trusted = await call("POST", "/api/v1/invoices/assess", "maker", { id: `${id}-NEXT`, supplier_id: "TEST-SUP", invoice_number: "NEW-002", amount_cents: 842000, creditor_account: syntheticIban(99), invoice_date: "2026-11-24" });
     expect([trusted.body.risk, trusted.body.status]).toEqual([25, "ready"]);
@@ -49,9 +49,47 @@ describe.skipIf(!disposableUrl)("disposable Supabase database", () => {
     expect((await call("POST", `${path}/reject`, "approver", { reason: "short" })).status).toBe(422);
     const rejected = await call("POST", `${path}/reject`, "approver", { reason: "Synthetic fraud report from supplier" });
     expect([rejected.status, rejected.body.status]).toEqual([200, "rejected"]);
-    expect((await call("POST", `${path}/hold`, "verifier")).status).toBe(403);
-    expect((await call("POST", `/api/v1/invoices/${id}-NEXT/approve`, "approver")).status).toBe(403);
+    expect((await call("POST", `${path}/hold`, "verifier")).status).toBe(409);
+    expect((await call("POST", `/api/v1/invoices/${id}-NEXT/approve`, "approver")).status).toBe(409);
     expect((await sql("select decision,reason from public.payment_approvals a join public.invoices i on i.id=a.invoice_id where i.public_id=$1 and a.decision='rejected'", [id]))).toEqual([{ decision: "rejected", reason: "Synthetic fraud report from supplier" }]);
+  });
+
+  it("requires an explicit duplicate review for normalisation-only matches (#37)", async () => {
+    const [org, maker, verifier, reviewer, approver] = [uuid(), uuid(), uuid(), uuid(), uuid()];
+    await seedMembers([[org, maker, "analyst"], [org, verifier, "analyst"], [org, reviewer, "analyst"], [org, approver, "approver"]], [[org, "Synthetic duplicate review test"]]);
+    await seedSupplierHistory(org, "DUP-SUP", "Synthetic duplicate supplier", 3);
+    const { call } = apiClient({ maker: { user: maker, org }, verifier: { user: verifier, org }, reviewer: { user: reviewer, org }, approver: { user: approver, org } });
+    const assess = async (id: string, number: string, date: string) => (await call("POST", "/api/v1/invoices/assess", "maker", { id, supplier_id: "DUP-SUP", invoice_number: number, amount_cents: 842000, creditor_account: syntheticIban(1), invoice_date: date })).body;
+    const verify = (id: string) => call("POST", `/api/v1/invoices/${id}/verify`, "verifier", { evidence_note: "Synthetic independent callback record" });
+    const approve = (id: string) => call("POST", `/api/v1/invoices/${id}/approve`, "approver");
+    const review = (id: string, who: string, decision: string, reason = "Supplier confirmed by phone, synthetic") => call("POST", `/api/v1/invoices/${id}/duplicate-review`, who, { decision, reason });
+
+    expect((await assess("DUP-BASE", "DUP-100", "2026-10-01")).risk).toBe(0);
+    expect((await approve("DUP-BASE")).body.status).toBe("approved");
+    // Exact copy: hard block, no review possible.
+    expect((await assess("DUP-EXACT", "dup-100", "2026-10-15")).status).toBe("blocked");
+    expect((await approve("DUP-EXACT")).status).toBe(409);
+    expect((await review("DUP-EXACT", "reviewer", "distinct")).status).toBe(409);
+    // Normalisation-only match against the approved invoice: a verification alone does not clear it; "duplicate" blocks it.
+    expect([(await assess("DUP-NEAR", "DUP 0100", "2026-11-01")).risk, (await verify("DUP-NEAR")).status]).toEqual([75, 200]);
+    expect((await approve("DUP-NEAR")).status).toBe(409);
+    expect((await call("GET", "/api/v1/invoices/DUP-NEAR/duplicate-review", "maker")).body.matches).toEqual([expect.objectContaining({ kind: "invoice", id: "DUP-BASE", decision: null })]);
+    expect((await review("DUP-NEAR", "reviewer", "duplicate")).body.status).toBe("blocked");
+    expect((await approve("DUP-NEAR")).status).toBe(409);
+    // Normalisation-only match against paid history.
+    expect((await assess("DUP-PAID", "hist 0", "2026-11-15")).risk).toBe(75);
+    expect([(await verify("DUP-PAID")).status, (await approve("DUP-PAID")).status]).toEqual([200, 409]);
+    // A pair confirmed as genuinely different proceeds through normal approval; the maker cannot review their own invoice.
+    expect((await assess("DUP-DISTINCT", "DUP_100", "2026-12-01")).risk).toBe(75);
+    expect((await review("DUP-DISTINCT", "maker", "distinct")).status).toBe(403);
+    expect((await review("DUP-DISTINCT", "reviewer", "distinct")).status).toBe(200);
+    expect((await review("DUP-DISTINCT", "reviewer", "duplicate")).status).toBe(409);
+    expect((await verify("DUP-DISTINCT")).status).toBe(200);
+    expect([(await approve("DUP-DISTINCT")).status, (await call("GET", "/api/v1/invoices/DUP-DISTINCT", "maker")).body.status]).toEqual([200, "approved"]);
+    expect(await sql("select r.decision,r.reason,r.decided_by::text as decided_by from public.duplicate_reviews r join public.invoices i on i.id=r.invoice_id where i.public_id=$1", ["DUP-DISTINCT"])).toEqual([{ decision: "distinct", reason: "Supplier confirmed by phone, synthetic", decided_by: reviewer }]);
+    expect((await call("GET", "/api/v1/audit", "maker")).body.filter((event: { action: string }) => event.action === "DUPLICATE_REVIEW")).toHaveLength(2);
+    // Decisions are append-only.
+    await expect(sql("delete from public.duplicate_reviews where organization_id=$1", [org])).rejects.toThrow();
   });
 
   it("takes a synthetic PDF through intake, review, risk and approval", async () => {
@@ -69,11 +107,10 @@ describe.skipIf(!disposableUrl)("disposable Supabase database", () => {
     expect((await call("POST", "/api/v1/invoice-intakes", "maker", pdfForm(`${text}Note: different\n`, "other.pdf"), key)).status).toBe(409);
     const path = `/api/v1/invoice-intakes/${upload.body.id}`;
     expect((await call("GET", path, "outsider")).status).toBe(404);
-    for (const attempt of [2, 3]) {
-      const extracted = await call("POST", `${path}/extract`, "maker");
-      expect([extracted.status, extracted.body.extraction_attempts]).toEqual([200, attempt]);
-    }
-    expect((await call("POST", `${path}/extract`, "maker")).status).toBe(429);
+    expect(upload.body.retry_available).toBe(false);
+    const extracted = await call("POST", `${path}/extract`, "maker");
+    expect([extracted.status, extracted.body.detail]).toEqual([503, "OpenAI extraction is not configured for this environment"]);
+    expect((await call("GET", path, "maker")).body.extraction_attempts).toBe(1);
     const review = await call("PATCH", path, "maker", { fields: upload.body.fields, supplier_id: "TEST-SUP", create_new_supplier: false });
     expect([review.status, review.body.status]).toEqual([200, "reviewed"]);
     const analyzed = await call("POST", `${path}/analyze`, "maker");
@@ -84,7 +121,7 @@ describe.skipIf(!disposableUrl)("disposable Supabase database", () => {
     expect(JSON.stringify(invoice)).not.toContain(syntheticIban(99));
     const invoicePath = `/api/v1/invoices/${invoice.id}`;
     expect((await call("GET", `${invoicePath}/documents`, "maker")).body).toHaveLength(1);
-    expect((await call("POST", `${invoicePath}/approve`, "approver")).status).toBe(403);
+    expect((await call("POST", `${invoicePath}/approve`, "approver")).status).toBe(409);
     const history = await call("GET", `${invoicePath}/assessments`, "maker");
     expect([history.status, history.body.length]).toEqual([200, 1]);
     const detail = await call("GET", `${invoicePath}/assessments/${history.body[0].id}`, "maker");
@@ -145,7 +182,7 @@ describe.skipIf(!disposableUrl)("disposable Supabase database", () => {
     expect(status.last_run.records_skipped).toBe(4);
 
     const note = { evidence_note: "Synthetic callback to known supplier contact" };
-    expect((await call("POST", `${path}/approve`, "approver")).status).toBe(403);
+    expect((await call("POST", `${path}/approve`, "approver")).status).toBe(409);
     expect((await call("POST", `${path}/verify`, "owner", note)).status).toBe(403);
     expect((await call("POST", `${path}/verify`, "analyst", note)).status).toBe(200);
     expect((await call("POST", `${path}/approve`, "analyst")).status).toBe(403);

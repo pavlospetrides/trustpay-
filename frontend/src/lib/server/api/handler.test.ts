@@ -2,10 +2,20 @@ import { describe, expect, it } from "vitest";
 import { DemoStore } from "../database/demo-store";
 import { handleApiRequest } from "./handler";
 import type { ApiContext } from "./handler";
+import { authorizeTransition, type TransitionAction, type TransitionRow } from "../approvals/policy";
 
 const request = (path: string, method = "GET", body?: unknown) => new Request(`http://127.0.0.1:3000/api/${path}`, { method, headers: body ? { "Content-Type": "application/json" } : undefined, body: body ? JSON.stringify(body) : undefined });
 
 describe("single-server synthetic API", () => {
+  it("reports the selected OCR reader in health", async () => {
+    const previous = process.env.TRUSTPAY_INVOICE_READER;
+    process.env.TRUSTPAY_INVOICE_READER = "ocr";
+    try {
+      const context = { mode: "postgres", aiEnabled: true, pg: { health: async () => {} } } as unknown as ApiContext;
+      const response = await handleApiRequest(request("health"), ["health"], context);
+      expect((await response.json()).invoice_reader).toBe("openai_ocr_text");
+    } finally { if (previous === undefined) delete process.env.TRUSTPAY_INVOICE_READER; else process.env.TRUSTPAY_INVOICE_READER = previous; }
+  });
   it("serves the 75-score verification and approval workflow with separate audit events", async () => {
     const db = new DemoStore(":memory:");
     const context = { mode: "sqlite" as const, demo: db };
@@ -21,6 +31,29 @@ describe("single-server synthetic API", () => {
       expect((await approved.json()).status).toBe("approved");
       const audit = await handleApiRequest(request("v1/audit"), ["v1", "audit"], context);
       expect((await audit.json()).filter((event: { invoice_id: string }) => event.invoice_id === "INV-2409").map((event: { action: string }) => event.action)).toEqual(["APPROVE", "VERIFY", "ASSESSED"]);
+    } finally { db.close(); }
+  });
+  it("serves the stateless accounting review and validates its input", async () => {
+    const db = new DemoStore(":memory:");
+    const context = { mode: "sqlite" as const, demo: db };
+    const call = (body: unknown) => handleApiRequest(request("v1/accounting/review", "POST", body), ["v1", "accounting", "review"], context);
+    try {
+      const ok = await call({ invoice_date: "2026-11-20", currency: "EUR", supplier: { name: "Synthetic Supplier Ltd", country: "CY", vat_number: "CY10012345A" }, buyer: { country: "CY", vat_registered: true }, totals: { net_cents: 10_000, vat_cents: 1_900, gross_cents: 11_900 }, lines: [{ description: "Office stationery", net_cents: 10_000, vat_rate: "19", vat_cents: 1_900 }] });
+      expect(ok.status).toBe(200);
+      expect(await ok.json()).toMatchObject({ status: "needs_review", treatment: { code: "domestic" }, category: { id: "office_expenses" }, journal: { status: "draft" } });
+      expect((await call({ invoice_date: "2026-11-20" })).status).toBe(422);
+      // Nothing is stored: the demo invoices and audit trail are unchanged.
+      expect(db.audit().some((event) => event.action.includes("ACCOUNT"))).toBe(false);
+    } finally { db.close(); }
+  });
+  it("serves the duplicate-review route and validates its input", async () => {
+    const db = new DemoStore(":memory:");
+    const context = { mode: "sqlite" as const, demo: db };
+    const call = (path: string, method = "GET", body?: unknown) => handleApiRequest(request(`v1/${path}`, method, body), ["v1", ...path.split("/")], context);
+    try {
+      expect((await call("invoices/INV-2409/duplicate-review", "POST", { decision: "distinct", reason: "Nothing to review here at all" })).status).toBe(409);
+      expect((await call("invoices/INV-2409/duplicate-review", "POST", { decision: "maybe", reason: "Not a valid decision value" })).status).toBe(422);
+      expect(await (await call("invoices/INV-2409/duplicate-review")).json()).toEqual({ invoice_id: "INV-2409", invoice_number: "AS-2026-114", matches: [] });
     } finally { db.close(); }
   });
   it("rejects NUL characters in evidence before they reach storage", async () => {
@@ -85,5 +118,41 @@ describe("single-server synthetic API", () => {
     const context = { mode: "postgres", pg: { membershipRows: async () => [] }, verifyToken: async () => "11111111-1111-4111-8111-111111111111" } as unknown as ApiContext;
     const response = await handleApiRequest(new Request("http://localhost/api/v1/invoices", { headers: { Authorization: "Bearer synthetic-token" } }), ["v1", "invoices"], context);
     expect(response.status).toBe(403);
+  });
+  it("reports unavailable extraction retries as a service error", async () => {
+    const context = { mode: "postgres", pg: { membershipRows: async () => [{ organizationId: "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa", role: "analyst" }] }, verifyToken: async () => "11111111-1111-4111-8111-111111111111", intake: { retry: async () => { throw new Error("OpenAI extraction is not configured for this environment"); } } } as unknown as ApiContext;
+    const path = ["v1", "invoice-intakes", "bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb", "extract"];
+    const response = await handleApiRequest(new Request(`http://localhost/api/${path.join("/")}`, { method: "POST", headers: { Authorization: "Bearer synthetic-token", "X-Organization-Id": "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa" } }), path, context);
+    expect([response.status, (await response.json()).detail]).toEqual([503, "OpenAI extraction is not configured for this environment"]);
+  });
+  it("answers 403 for who may act and 409 for invoice state in PostgreSQL mode, and 409 for both in SQLite mode", async () => {
+    const user = "11111111-1111-4111-8111-111111111111";
+    const message = (role: string, action: TransitionAction, row: Partial<TransitionRow>) => { try { authorizeTransition({ userId: user, organizationId: "org", role }, action, { status: "ready", score: 0, verifiedBy: null, createdBy: null, ...row }); } catch (error) { return (error as Error).message; } throw new Error("expected a refusal"); };
+    const cases: Array<[string, number]> = [
+      [message("analyst", "approve", {}), 403],
+      [message("analyst", "verify", { status: "needs_review", createdBy: user }), 403],
+      [message("approver", "approve", { createdBy: user }), 403],
+      [message("approver", "approve", { status: "needs_review" }), 409],
+      [message("approver", "approve", { score: 75 }), 409],
+      [message("analyst", "verify", { status: "approved" }), 409],
+      [message("analyst", "release", {}), 409],
+      [message("analyst", "hold", { status: "blocked" }), 409],
+      [message("analyst", "hold", { status: "rejected" }), 409],
+      ["Invoice cannot be approved because another copy is already approved", 409],
+      ["Invoice cannot be approved because this supplier invoice number is already paid", 409],
+      ["Invoice cannot be approved: it may duplicate invoice X. An authorized reviewer must record a duplicate review confirming they are different invoices", 409],
+      ["Invoice cannot be reviewed for duplicates in its current state", 409],
+      ["Invoice creator cannot review their own invoice for duplicates", 403],
+      ["Maker-checker separation failed: the person who confirmed the invoices are distinct cannot approve", 403],
+    ];
+    for (const [detail, status] of cases) {
+      const context = { mode: "postgres", pg: { membershipRows: async () => [{ organizationId: "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa", role: "approver" }], transition: async () => { throw new Error(detail); } }, verifyToken: async () => user } as unknown as ApiContext;
+      const path = ["v1", "invoices", "INV-1", "approve"];
+      const response = await handleApiRequest(new Request(`http://localhost/api/${path.join("/")}`, { method: "POST", headers: { Authorization: "Bearer synthetic-token", "X-Organization-Id": "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa" } }), path, context);
+      expect([detail, response.status]).toEqual([detail, status]);
+    }
+    const demo = new DemoStore(":memory:");
+    const role = await handleApiRequest(request("v1/invoices/INV-2409/approve", "POST"), ["v1", "invoices", "INV-2409", "approve"], { mode: "sqlite", demo });
+    expect(role.status).toBe(409);
   });
 });

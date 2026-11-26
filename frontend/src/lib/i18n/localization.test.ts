@@ -43,4 +43,18 @@ describe("TrustPay localization", () => {
     expect(locale.date("2026-11-23")).toBe(locale.date("2026-11-23T22:30:00Z"));
     expect(locale.date("2026-11-23")).not.toBe(locale.date("2026-11-24"));
   });
+
+  it("localizes the incoming duplicate signals and country-specific IBAN errors at display time", async () => {
+    const ru = createLocalizer("ru", await loadCatalog("ru"));
+    const localized = presentation(ru);
+    const possibleDuplicate = sourceText("risk.possible-duplicate", { p0: "AS20260114", p1: "AS-2026-0114", p2: "already paid" });
+    expect(localized.riskText(possibleDuplicate)).toContain("«AS-2026-0114»");
+    expect(localized.riskText(possibleDuplicate)).toContain("уже оплачен");
+    const sameAmount = sourceText("risk.same-amount-recent", { p0: "AS-2026-0114", p1: "€4,960.00", p2: "2026-11-23", p3: 7 });
+    expect(localized.riskText(sameAmount)).toContain(ru.euro(496000));
+    expect(localized.message("A CY IBAN must have 28 characters")).toBe("IBAN для страны CY должен содержать 28 символов");
+    const blocked = sourceText("api.duplicate-decision-blocked", { p0: '"AS-2026-0114" (approved)' });
+    expect(localized.message(blocked)).toContain("«AS-2026-0114» (Согласован внутри компании)");
+    expect(localized.auditAction("DUPLICATE_REVIEW")).toBe("Проверка дубликата");
+  });
 });

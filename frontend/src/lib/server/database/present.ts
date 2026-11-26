@@ -1,4 +1,3 @@
-import { sourceText } from "../../i18n/core";
 import type { Invoice, Signal } from "../../types";
 import { decimalToCents } from "./money";
 
@@ -10,7 +9,7 @@ export interface InvoiceRow {
   verified_by: string | null; approved_by: string | null; external_source: string;
   ai_explanation: string | null; ai_explanation_method: Invoice["ai_explanation_method"];
 }
-const sourceLabels: Record<string, string> = { synthetic_seed: sourceText("synthetic-development-seed"), uploaded: sourceText("uploaded-invoice"), jinius_demo_adapter: sourceText("synthetic-jinius-demo") };
+const sourceLabels: Record<string, string> = { synthetic_seed: "Synthetic development seed", uploaded: "Uploaded invoice", jinius_demo_adapter: "Synthetic Jinius demo" };
 const mask = (last4?: string | null) => last4 ? `•••• ${last4.trim()}` : "••••";
 
 export function presentInvoice(row: InvoiceRow, history: HistoricalPayment[], signals: (Signal & { severity?: string })[]): Invoice {
@@ -22,13 +21,13 @@ export function presentInvoice(row: InvoiceRow, history: HistoricalPayment[], si
   return {
     id: row.public_id, supplier_id: row.supplier_public_id, supplier: row.supplier_name, short: row.supplier_name,
     invoice: row.invoice_number, amount_cents: amountCents, amount: amountCents / 100, iban: mask(row.iban_last4),
-    previous: previous ? mask(previous) : sourceText("new-supplier"), history: history.length,
+    previous: previous ? mask(previous) : "New supplier", history: history.length,
     date: row.issue_date,
     risk: row.score, level: row.severity, kind: row.kind, reason: row.explanation, signals,
     ai_explanation: row.ai_explanation, ai_explanation_method: row.ai_explanation_method,
     notes: signals.length ? signals.map((signal) => signal.explanation) : [row.explanation],
     status: row.status, verified: Boolean(row.verified_by), verified_by: row.verified_by, approved_by: row.approved_by,
-    reference: sourceLabels[row.external_source] ?? sourceText("manual-assessment"), source: row.external_source,
+    reference: sourceLabels[row.external_source] ?? "Manual assessment", source: row.external_source,
   };
 }
 

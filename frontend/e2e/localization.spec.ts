@@ -1,4 +1,5 @@
 import { expect, test, type Page } from "@playwright/test";
+import type { UniversalDocument } from "../src/lib/server/invoices/universal";
 
 const pages = ["/", "/login", "/app/overview", "/app/payments", "/app/payments/INV-2409", "/app/payments/INV-2410",
   "/app/payments/new", "/app/approvals", "/app/suppliers", "/app/suppliers/SUP-001", "/app/insights",
@@ -227,28 +228,70 @@ test("a verification message switches language and the synthetic approval is ret
   await expect(page.getByText("Synthetic supplier verification note", { exact: false })).toBeVisible();
 });
 
-test("review of an extracted invoice preserves the API data in Greek and Hebrew", async ({ page, context }) => {
+test("structured OCR review preserves the API data across the four languages", async ({ page, context }) => {
   const id = "11111111-1111-4111-8111-111111111111";
   const fields = {
     supplier_name: "Aegean Supplies Ltd", registration_number: null, vat_number: null, invoice_number: "DEMO-EXTRACTED",
     invoice_date: "2026-11-23", due_date: null, total_amount: "8420.00", currency: "EUR", iban: "GB43TRST00000000000099",
     payment_reference: null,
   };
+  const field = (value: string | null = null, supporting_text: string | null = null) => ({
+    value, source_value: value, supporting_text, page: supporting_text ? 2 : null, uncertain: false,
+  });
+  const party = {
+    legal_name: field(), trading_name: field(), registration_number: field(), vat_number: field(),
+    address: field(), country: field(), email: field(), telephone: field(),
+  };
+  const document: UniversalDocument = {
+    document_type: "invoice", languages: ["en"], multiple_invoices: false,
+    document: {
+      invoice_number: field(fields.invoice_number), invoice_date: field(fields.invoice_date), due_date: field(),
+      purchase_order_reference: field(), payment_reference: field(), original_invoice_reference: field(),
+    },
+    supplier: { ...party, legal_name: field(fields.supplier_name) },
+    customer: { ...party, customer_reference: field() },
+    financial: {
+      currency: field(fields.currency), subtotal: field(), discounts: field(), net_amount: field(), vat_amount: field(),
+      additional_charges: field(), shipping: field(), gross_total: field(fields.total_amount, "Total payable 8,420.00"),
+      amount_paid: field(), outstanding_balance: field(),
+    },
+    accounts: [{
+      iban: field(fields.iban), account_number: field(), bank_name: field(), bic: field(), beneficiary_name: field(), instructions: field(),
+    }],
+    vat_breakdown: [{ rate: field("19"), net_amount: field(), vat_amount: field() }],
+    line_items: [{
+      description: field("Synthetic accounting services"), code: field(), quantity: field("1"), unit: field(),
+      unit_price: field("8420.00"), discount: field(), net_amount: field(), vat_rate: field(), vat_amount: field(), total_amount: field(),
+    }],
+    warnings: [],
+  };
   const intake = {
     id, status: "needs_review", fields, supplier_id: "SUP-001", create_new_supplier: false, uncertain_fields: [],
-    extraction_attempts: 1, method: "local_pdf_text", content_type: "application/pdf", size_bytes: 712,
+    extraction_attempts: 1, method: "openai_ocr_text", error_code: "OCR_LOW_CONFIDENCE", content_type: "application/pdf", size_bytes: 712,
+    document, original_fields: fields, retry_available: true, page_count: 2,
+    findings: [{ code: "DATE_ORDER", severity: "warning", field: "document.due_date", detail: "Due date precedes invoice date" }],
   };
   await context.addCookies([{ name: "trustpay-language", value: "el", url: "http://127.0.0.1:32190" }]);
   await page.route("**/api/v1/invoice-intakes/" + id, async route => {
     if (route.request().method() === "PATCH") {
       const received = route.request().postDataJSON();
       expect(received.fields).toEqual({ ...fields, total_amount: "8420.01" });
-      await route.fulfill({ json: { ...intake, status: "reviewed", fields: received.fields } });
+      expect(received.reviewed_document).toMatchObject({
+        document_type: "commercial_invoice",
+        financial: { gross_total: { value: "8420,01", source_value: fields.total_amount } },
+        line_items: document.line_items,
+      });
+      expect(received.classification_override_reason).toBe("Synthetic commercial invoice classification");
+      await route.fulfill({ json: { ...intake, status: "reviewed", fields: received.fields, reviewed_document: received.reviewed_document } });
     } else {
       await route.fulfill({ json: intake });
     }
   });
   await page.goto("/app/intakes/" + id);
+  await expect(page.getByRole("alert").filter({ hasText: "Η ποιότητα της αναγνώρισης κειμένου δεν επαρκεί." })).toBeVisible();
+  await expect(page.getByRole("heading", { name: "Γραμμή τιμολογίου 1", exact: true })).toBeVisible();
+  await page.getByRole("combobox", { name: "Τύπος εγγράφου", exact: true }).selectOption("commercial_invoice");
+  await page.getByLabel("Αιτιολόγηση αλλαγής ταξινόμησης").fill("Synthetic commercial invoice classification");
   await page.getByLabel("Συνολικό ποσό", { exact: true }).fill("8420,01");
   await page.getByRole("button", { name: "Αποθήκευση διορθώσεων" }).click();
   await expect(page.getByRole("status").filter({ hasText: "Τα επιβεβαιωμένα στοιχεία αποθηκεύτηκαν." })).toBeVisible();
@@ -258,4 +301,10 @@ test("review of an extracted invoice preserves the API data in Greek and Hebrew"
   await expect(iban).toHaveValue(fields.iban);
   await expect(iban).toHaveAttribute("dir", "ltr");
   await expect(page.getByRole("button", { name: "הערכת סיכון" })).toBeEnabled();
+  await expect(page.getByRole("heading", { name: /שורה.*1.*בחשבונית/ })).toBeVisible();
+  await chooseLanguage(page, "שפה עברית", "Русский");
+  await expect(page.getByRole("heading", { name: "Позиция 1", exact: true })).toBeVisible();
+  await chooseLanguage(page, "Язык Русский", "English");
+  await expect(page.getByRole("heading", { name: "Line item 1", exact: true })).toBeVisible();
+  await expect(page.getByText("Total payable 8,420.00", { exact: false }).first()).toBeVisible();
 });

@@ -59,7 +59,7 @@ export function InvoiceUpload() {
       <FileUp size={30} aria-hidden="true"/>
       <strong>{file ? <bdi>{file.name}</bdi> : t("drop-a-synthetic-invoice-here")}</strong>
       <span>{file ? t("upload.selected-size", { p0: number(Math.round(file.size / 1024)) }) : t("pdf-png-or-jpeg-up-to-10-mb-2")}</span>
-      <input ref={input} type="file" accept=".pdf,.png,.jpg,.jpeg,application/pdf,image/png,image/jpeg"
+      <input ref={input} type="file" accept=".pdf,.png,.jpg,.jpeg,.webp,application/pdf,image/png,image/jpeg,image/webp"
         aria-label={t("choose-invoice-file")} onChange={event => choose(event.target.files?.item(0) || null)}/>
       <button type="button" className="button secondary" disabled={busy} onClick={() => input.current?.click()}>{t("choose-file")}</button>
     </div>

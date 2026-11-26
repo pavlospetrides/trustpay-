@@ -34,6 +34,8 @@ const modeKeys: Readonly<Record<string, MessageKey>> = {
 const signalKeys: Readonly<Record<string, MessageKey>> = {
   "DUPLICATE_PAID_INVOICE": "duplicate-paid-invoice",
   "DUPLICATE_OPEN_INVOICE": "duplicate-open-invoice",
+  "POSSIBLE_DUPLICATE_INVOICE": "risk.possible-duplicate-label",
+  "SAME_AMOUNT_RECENT_INVOICE": "risk.same-amount-recent-label",
   "PREVIOUSLY_REJECTED_INVOICE": "previously-rejected-invoice",
   "BANK_ACCOUNT_CHANGED": "bank-account-changed",
   "BANK_ACCOUNT_VERIFIED_CHANGE": "bank-account-verified-change",
@@ -52,11 +54,13 @@ const auditKeys: Readonly<Record<string, MessageKey>> = {
   "HOLD": "hold",
   "RELEASE": "release",
   "REJECT": "reject",
+  "DUPLICATE_REVIEW": "audit.duplicate-review",
   "DOCUMENT_UPLOADED": "upload",
   "INTAKE_UPLOADED": "intake-uploaded",
   "INTAKE_REVIEWED": "intake-reviewed",
   "INTAKE_REEXTRACTED": "intake-reextracted",
   "INTAKE_ANALYZED": "intake-analyzed",
+  "INTAKE_CLASSIFICATION_OVERRIDDEN": "audit.intake-classification",
   "INTEGRATION_SYNC": "integration-sync",
   "IMPORT_NEEDS_REVIEW": "import-needs-review",
   "IMPORT_RESOLVED": "import-resolved",
@@ -70,6 +74,8 @@ function template(key: MessageKey) {
 }
 const templates = Object.fromEntries([
   "risk.account-verified", "risk.account-changed", "risk.large-amount", "risk.elevated-amount", "risk.identity-mismatch",
+  "risk.possible-duplicate", "risk.same-amount-recent", "api.iban-country-length",
+  "api.duplicate-decision-required", "api.duplicate-decision-blocked",
   "payment-risk-assessed",
   "audit.assessment-detail",
   "analyst-supplied-evidence",
@@ -79,6 +85,7 @@ const templates = Object.fromEntries([
   "further-investigation-required",
   "policy-score-100",
   "audit.document-detail",
+  "audit.intake-fields-corrected",
   "supplier-assigned-assessed-as",
   "synthetic-jinius-demo-seen-assessed-need-review-already",
   "sync-finished-assessed-sent-to-human-review-already",
@@ -106,6 +113,10 @@ export function presentation(i18n: Localizer) {
     if (identity) return render("risk.identity-mismatch", [
       list(identity[0].split(" and ").map(field => field === "vat number" ? t("vat-number") : t("registration-number"))),
     ]);
+    const duplicate = templates["risk.possible-duplicate"](value);
+    if (duplicate) return render("risk.possible-duplicate", [duplicate[0], duplicate[1], text(duplicate[2])]);
+    const sameAmount = templates["risk.same-amount-recent"](value);
+    if (sameAmount) return render("risk.same-amount-recent", [sameAmount[0], currency(sameAmount[1].replace(/^€/, "")), date(sameAmount[2]), localizedNumber(sameAmount[3])]);
     return text(value);
   }
 
@@ -114,6 +125,8 @@ export function presentation(i18n: Localizer) {
     const assessedKey = "payment-risk-assessed";
     const assessed = templates[assessedKey](event.title);
     if (assessed) return render(assessedKey, [label(levelKeys, assessed[0])]);
+    const localized = text(event.title);
+    if (localized !== event.title) return localized;
     if (event.action.startsWith("INTAKE_")) return label(auditKeys, event.action);
     return text(event.title);
   }
@@ -124,6 +137,8 @@ export function presentation(i18n: Localizer) {
     if (assessed) return render("audit.assessment-detail", [assessed[0], localizedNumber(assessed[1]), riskText(assessed[2])]);
     const doc = templates["audit.document-detail"](value);
     if (doc) return render("audit.document-detail", [doc[0], doc[1], localizedNumber(doc[2])]);
+    const corrected = templates["audit.intake-fields-corrected"](value);
+    if (corrected) return render("audit.intake-fields-corrected", corrected);
     for (const key of ["analyst-supplied-evidence", "finance-manager-approved-demo-decision-no-bank-payment", "returned-to-the-review-queue", "reason", "further-investigation-required", "policy-score-100", "supplier-assigned-assessed-as", "synthetic-jinius-demo-seen-assessed-need-review-already"] as const) {
       const values = templates[key](value);
       if (values) return render(key, values);
@@ -135,7 +150,16 @@ export function presentation(i18n: Localizer) {
     if (!value || locale === "en") return value ?? "";
     const exact = text(value);
     if (value !== exact) return exact;
-    for (const key of ["request-failed", "sync-finished-assessed-sent-to-human-review-already"] as const) {
+    for (const key of ["api.duplicate-decision-required", "api.duplicate-decision-blocked"] as const) {
+      const values = templates[key](value);
+      if (!values) continue;
+      const match = /^"([\s\S]+)" \(([^()]*)\)$/.exec(values[0]);
+      const duplicate = match ? t("api.duplicate-match-record", {
+        p0: match[1], p1: match[2] === "paid" ? t("risk.duplicate-already-paid") : label(statusKeys, match[2]),
+      }) : values[0];
+      return render(key, [duplicate]);
+    }
+    for (const key of ["request-failed", "sync-finished-assessed-sent-to-human-review-already", "api.iban-country-length"] as const) {
       const values = templates[key](value);
       if (values) return render(key, values.map(item => /^\d+$/.test(item) ? localizedNumber(item) : item));
     }

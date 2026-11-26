@@ -44,7 +44,7 @@ export function InvoiceDocuments({ invoiceId }: { invoiceId: string }) {
     {feed.loading ? <Loading/> : feed.error ? <ErrorState message={feed.error} retry={feed.refresh}/> :
       feed.data?.length ? <ul>{feed.data.map(document => <li key={document.id}><span>{document.content_type} · {number(Math.round(document.size_bytes / 1024))} {t("kb")}</span><button type="button" className="button quiet" onClick={() => void download(document.id)}>{t("download")}</button></li>)}</ul> : <p className="muted">{t("no-documents-attached")}</p>}
     <div className="document-upload">
-      <input ref={fileInput} type="file" hidden accept="application/pdf,image/png,image/jpeg" aria-label={t("choose-invoice-document")} onChange={event => setFile(event.target.files?.[0] || null)}/>
+      <input ref={fileInput} type="file" hidden accept="application/pdf,image/png,image/jpeg,image/webp" aria-label={t("choose-invoice-document")} onChange={event => setFile(event.target.files?.[0] || null)}/>
       <button type="button" className="button quiet" disabled={busy} onClick={() => fileInput.current?.click()}>{t("choose-invoice-document")}</button>
       <span className="muted" aria-live="polite">{file ? t("selected-file", { p0: file.name }) : t("no-file-selected")}</span>
       <button type="button" className="button secondary" disabled={!file || busy} onClick={() => void upload()}>{busy ? t("uploading") : t("upload-document")}</button>
