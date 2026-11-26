@@ -22,7 +22,8 @@ export const accountingInputSchema = z.strictObject({
   invoice_date: isoDate,
   currency: z.string().regex(/^[A-Z]{3}$/, "Use a three-letter currency code"),
   supplier: z.strictObject({ name: text(200).nullish(), country: country.nullish(), vat_number: text(40).nullish() }),
-  buyer: z.strictObject({ country: country.nullish(), vat_number: text(40).nullish(), vat_registered: z.boolean().default(true) }).default({ vat_registered: true }),
+  // Buyer details are never assumed: Cyprus treatment and the journal need the country and VAT registration status.
+  buyer: z.strictObject({ country: country.nullish(), vat_number: text(40).nullish(), vat_registered: z.boolean().nullish() }).default({}),
   totals: z.strictObject({ net_cents: cents.nullish(), vat_cents: cents.nullish(), gross_cents: cents.positive() }),
   vat_breakdown: z.array(z.strictObject({ rate: percent, net_cents: cents, vat_cents: cents })).max(20).default([]),
   lines: z.array(z.strictObject({
@@ -42,7 +43,7 @@ export type AccountingInput = z.input<typeof accountingInputSchema>;
 export type Severity = "error" | "review" | "info";
 export interface Finding { code: string; severity: Severity; field: string; message: string }
 export interface JournalLine { account: string; debit_cents: number; credit_cents: number; memo: string }
-export type Treatment = "domestic" | "domestic_zero_or_exempt" | "domestic_reverse_charge" | "domestic_reverse_charge_review" | "eu_reverse_charge" | "foreign_vat_charged" | "non_eu_supply" | "unknown";
+export type Treatment = "domestic" | "domestic_zero_or_exempt" | "domestic_reverse_charge" | "domestic_reverse_charge_review" | "eu_reverse_charge" | "foreign_vat_charged" | "non_eu_supply" | "unknown" | "not_assessed";
 
 export interface AccountingReview {
   rules_version: string;
@@ -101,16 +102,27 @@ export function reviewInvoiceAccounting(raw: AccountingInput): AccountingReview 
 
   // 2. Where the supply comes from decides the VAT treatment, which an accountant confirms.
   const supplierCountry = countryOf(input.supplier.country, input.supplier.vat_number);
-  const buyerCountry = countryOf(input.buyer.country, input.buyer.vat_number) ?? "CY";
-  const registered = input.buyer.vat_registered;
+  // Cyprus treatment and the journal apply only to a buyer confirmed to be in Cyprus with a known VAT registration status.
+  // Missing details are requested; a buyer outside Cyprus is out of scope. The arithmetic checks above apply in every case.
+  const buyerCountry = countryOf(input.buyer.country, input.buyer.vat_number);
+  const registered = input.buyer.vat_registered ?? null;
+  const scope: "cyprus" | "missing" | "outside" = buyerCountry !== null && buyerCountry !== "CY" ? "outside" : buyerCountry === "CY" && registered !== null ? "cyprus" : "missing";
   const vatCharged = vat !== null ? vat > 0 : input.vat_breakdown.some((row) => row.vat_cents > 0) || input.lines.some((line) => (line.vat_cents ?? 0) > 0);
   const vatKnown = vat !== null || input.vat_breakdown.length > 0 || input.lines.some((line) => line.vat_cents != null);
   const descriptions = input.lines.map((line) => line.description).join("\n");
   const reverseHint = supplierCountry === "CY" ? DOMESTIC_REVERSE_CHARGE_HINTS.find((hint) => hint.words.test(descriptions)) : undefined;
   let treatment: Treatment;
   let explanation: string;
-  if (buyerCountry !== "CY") add("BUYER_NOT_IN_CYPRUS", "review", "buyer.country", "These rules cover invoices received by a business established in Cyprus. Check the treatment under the buyer's own VAT rules.");
-  if (!vatKnown) {
+  if (scope === "missing") {
+    const missing = [buyerCountry === null ? "country" : null, registered === null ? "VAT registration status" : null].filter(Boolean).join(" and ");
+    treatment = "not_assessed";
+    explanation = `The buyer's ${missing} ${missing.includes(" and ") ? "are" : "is"} not known, so no Cyprus VAT treatment or entry is suggested.`;
+    add("BUYER_DETAILS_MISSING", "review", "buyer", `Enter the buyer's ${missing}. The Cyprus VAT treatment and the draft entry depend on them; the arithmetic checks do not.`);
+  } else if (scope === "outside") {
+    treatment = "not_assessed";
+    explanation = `The buyer is in ${buyerCountry}, so Cyprus VAT treatment is outside the scope of this review.`;
+    add("BUYER_OUTSIDE_SCOPE", "review", "buyer.country", `The buyer is in ${buyerCountry}. Cyprus VAT treatment and the draft entry are outside the scope of this review; check the treatment under the buyer's own VAT rules. The arithmetic checks still apply.`);
+  } else if (!vatKnown) {
     treatment = "unknown";
     explanation = "The VAT amount is not known, so the VAT treatment cannot be suggested.";
   } else if (supplierCountry === null) {
@@ -145,8 +157,8 @@ export function reviewInvoiceAccounting(raw: AccountingInput): AccountingReview 
       ? "Foreign VAT or sales tax is charged by a supplier outside the EU. It cannot be recovered through the Cyprus VAT return."
       : "For services from outside the EU, the Cyprus buyer usually self-accounts for VAT (reverse charge). For goods, import VAT is paid at customs, not on this invoice. Confirm which applies.");
   }
-  if (!registered) add("BUYER_NOT_VAT_REGISTERED", "info", "buyer.vat_registered", "The buyer is not VAT-registered, so any VAT charged is part of the cost and is not recovered. The draft entry includes it in the expense.");
-  if (treatment === "domestic" && registered) add("INPUT_VAT_RECOVERABILITY", "review", "totals.vat_cents", "VAT shown on an invoice is not automatically recoverable. Confirm the purchase relates to taxable activities and is not a blocked item (for example entertainment or private passenger cars) before claiming it.");
+  if (scope === "cyprus" && registered === false) add("BUYER_NOT_VAT_REGISTERED", "info", "buyer.vat_registered", "The buyer is not VAT-registered, so any VAT charged is part of the cost and is not recovered. The draft entry includes it in the expense.");
+  if (treatment === "domestic" && registered === true) add("INPUT_VAT_RECOVERABILITY", "review", "totals.vat_cents", "VAT shown on an invoice is not automatically recoverable. Confirm the purchase relates to taxable activities and is not a blocked item (for example entertainment or private passenger cars) before claiming it.");
 
   // 3. Stated rates must exist in Cyprus on the invoice date (only checked for Cyprus or unknown suppliers).
   const checkCyprusRates = supplierCountry === "CY" || supplierCountry === null;
@@ -157,8 +169,8 @@ export function reviewInvoiceAccounting(raw: AccountingInput): AccountingReview 
     for (const { rate, field } of stated) if (!valid.includes(rate)) add("RATE_NOT_CYPRUS", supplierCountry === "CY" ? "error" : "review", field, `${formatPercent(rate)} is not a Cyprus VAT rate on ${input.invoice_date}. Valid rates then: ${valid.map(formatPercent).join(", ")}.`);
     if (!stated.length && net !== null && vat !== null && net > 0 && vat > 0 && !valid.some((rate) => rate > 0 && Math.abs(vatOn(net, rate) - vat) <= TOLERANCE_CENTS)) add("IMPLIED_RATE_UNUSUAL", "review", "totals.vat_cents", `VAT of ${euro(vat)} on ${euro(net)} is ${((vat / net) * 100).toFixed(2)}%, which is not a single Cyprus rate. Mixed rates need a VAT breakdown; otherwise the VAT is wrong.`);
   }
-  if (input.currency !== "EUR") add("NON_EUR_CURRENCY", "review", "currency", `The invoice is in ${input.currency}. Amounts in the Cyprus VAT return are in euro: convert at the applicable exchange rate.`);
-  if (input.document_type === "credit_note") add("CREDIT_NOTE", "info", "document_type", "Credit note: the draft entry reverses the usual direction. Link it to the original invoice and reduce the VAT originally claimed.");
+  if (scope === "cyprus" && input.currency !== "EUR") add("NON_EUR_CURRENCY", "review", "currency", `The invoice is in ${input.currency}. Amounts in the Cyprus VAT return are in euro: convert at the applicable exchange rate.`);
+  if (scope === "cyprus" && input.document_type === "credit_note") add("CREDIT_NOTE", "info", "document_type", "Credit note: the draft entry reverses the usual direction. Link it to the original invoice and reduce the VAT originally claimed.");
 
   // 4. Categories per line; the invoice-level suggestion is the category carrying the most net value.
   const lines = input.lines.map((line, index) => {
@@ -178,8 +190,10 @@ export function reviewInvoiceAccounting(raw: AccountingInput): AccountingReview 
   const errors = findings.some((finding) => finding.severity === "error");
   let journal: AccountingReview["journal"] = null, unavailable: string | null = null;
   if (errors) unavailable = "Resolve the confirmed errors on the invoice before drafting an entry.";
+  else if (scope === "missing") unavailable = "The buyer's country and VAT registration status are needed to draft an entry.";
+  else if (scope === "outside") unavailable = "Cyprus entries are not drafted for a buyer outside Cyprus.";
   else if (net === null || vat === null) unavailable = "The net and VAT amounts are needed to draft an entry.";
-  else journal = { status: "draft", note: "Suggested entry for review by an authorised accountant. Nothing is posted to a ledger.", lines: draftJournal({ net, vat, gross, lines, category, categories, treatment, registered, creditNote: input.document_type === "credit_note", supplier: input.supplier.name ?? "supplier" }) };
+  else journal = { status: "draft", note: "Suggested entry for review by an authorised accountant. Nothing is posted to a ledger.", lines: draftJournal({ net, vat, gross, lines, category, categories, treatment, registered: registered === true, creditNote: input.document_type === "credit_note", supplier: input.supplier.name ?? "supplier" }) };
 
   return {
     rules_version: RULES_VERSION,

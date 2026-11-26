@@ -8,6 +8,7 @@ const domestic: AccountingInput = {
   invoice_date: "2026-11-20",
   currency: "EUR",
   supplier: { name: "Aegean Supplies Synthetic Ltd", country: "CY", vat_number: "CY10012345A" },
+  buyer: { country: "CY", vat_registered: true },
   totals: { net_cents: 100_000, vat_cents: 19_000, gross_cents: 119_000 },
   lines: [{ description: "Printing paper and toner", quantity: "10", unit_price_cents: 10_000, net_cents: 100_000, vat_rate: "19", vat_cents: 19_000 }],
 };
@@ -124,7 +125,7 @@ describe("accounting review of an invoice", () => {
     const charged = review({ totals: { net_cents: 200_000, vat_cents: 38_000, gross_cents: 238_000 }, lines: [{ ...work, vat_rate: "19", vat_cents: 38_000 }] });
     expect(charged.treatment.code).toBe("domestic_reverse_charge_review");
     // A buyer that is not VAT-registered cannot use the reverse charge.
-    expect(review({ buyer: { vat_registered: false }, totals: { net_cents: 200_000, vat_cents: 38_000, gross_cents: 238_000 }, lines: [{ ...work, vat_rate: "19", vat_cents: 38_000 }] }).treatment.code).toBe("domestic");
+    expect(review({ buyer: { country: "CY", vat_registered: false }, totals: { net_cents: 200_000, vat_cents: 38_000, gross_cents: 238_000 }, lines: [{ ...work, vat_rate: "19", vat_cents: 38_000 }] }).treatment.code).toBe("domestic");
   });
 
   it("asks about zero-rated, non-EU and unknown-origin supplies instead of guessing", () => {
@@ -151,7 +152,7 @@ describe("accounting review of an invoice", () => {
   });
 
   it("puts VAT into the cost for a buyer that is not VAT-registered, balanced to the cent across lines", () => {
-    const result = review({ buyer: { vat_registered: false }, totals: { net_cents: 300, vat_cents: 57, gross_cents: 357 }, lines: [{ description: "Toner", net_cents: 100 }, { description: "Internet broadband", net_cents: 100 }, { description: "Courier delivery", net_cents: 100 }] });
+    const result = review({ buyer: { country: "CY", vat_registered: false }, totals: { net_cents: 300, vat_cents: 57, gross_cents: 357 }, lines: [{ description: "Toner", net_cents: 100 }, { description: "Internet broadband", net_cents: 100 }, { description: "Courier delivery", net_cents: 100 }] });
     expect(codes(result)).toContain("BUYER_NOT_VAT_REGISTERED");
     expect(codes(result)).not.toContain("INPUT_VAT_RECOVERABILITY");
     expect(result.journal!.lines.filter((line) => line.debit_cents).map((line) => line.debit_cents)).toEqual([119, 119, 119]);
@@ -180,7 +181,43 @@ describe("accounting review of an invoice", () => {
   });
 
   it("produces only balanced draft entries", () => {
-    const cases: Partial<AccountingInput>[] = [{}, { document_type: "credit_note" }, { buyer: { vat_registered: false } }, { supplier: { name: "X GmbH", vat_number: "DE1" }, totals: { net_cents: 100_000, vat_cents: 0, gross_cents: 100_000 }, lines: [{ description: "Software", net_cents: 100_000 }] }];
+    const cases: Partial<AccountingInput>[] = [{}, { document_type: "credit_note" }, { buyer: { country: "CY", vat_registered: false } }, { supplier: { name: "X GmbH", vat_number: "DE1" }, totals: { net_cents: 100_000, vat_cents: 0, gross_cents: 100_000 }, lines: [{ description: "Software", net_cents: 100_000 }] }];
     for (const changes of cases) expect(balanced(review(changes))).toBe(true);
+  });
+
+  describe("buyer details gate the Cyprus treatment", () => {
+    const arithmeticOnly = (result: AccountingReview) => [result.treatment.code, result.journal, result.findings.filter((finding) => ["INPUT_VAT_RECOVERABILITY", "EU_REVERSE_CHARGE", "POSSIBLE_DOMESTIC_REVERSE_CHARGE", "ZERO_RATED_OR_EXEMPT", "NON_EUR_CURRENCY", "CREDIT_NOTE", "BUYER_NOT_VAT_REGISTERED"].includes(finding.code))];
+    it("asks for missing buyer details instead of assuming a VAT-registered Cyprus buyer", () => {
+      const none = review({ buyer: undefined });
+      expect(arithmeticOnly(none)).toEqual(["not_assessed", null, []]);
+      expect(none.findings.find((finding) => finding.code === "BUYER_DETAILS_MISSING")!.message).toContain("country and VAT registration status");
+      expect(none.journal_unavailable_reason).toBe("The buyer's country and VAT registration status are needed to draft an entry.");
+      expect(review({ buyer: { country: "CY" } }).findings.find((finding) => finding.code === "BUYER_DETAILS_MISSING")!.message).toContain("Enter the buyer's VAT registration status.");
+      expect(review({ buyer: { vat_registered: true } }).findings.find((finding) => finding.code === "BUYER_DETAILS_MISSING")!.message).toContain("Enter the buyer's country.");
+      // Categories are accounting suggestions, not Cyprus tax treatment, so they stay.
+      expect(none.category.id).toBe("office_expenses");
+    });
+    it("keeps the arithmetic checks when buyer details are missing", () => {
+      const wrong = review({ buyer: undefined, totals: { net_cents: 100_000, vat_cents: 19_000, gross_cents: 120_000 } });
+      expect([wrong.status, wrong.findings.map((finding) => finding.code)]).toEqual(["errors_found", ["GROSS_MISMATCH", "BUYER_DETAILS_MISSING"]]);
+      const badLine = review({ buyer: {}, lines: [{ description: "Toner", quantity: "10", unit_price_cents: 10_000, net_cents: 100_000, vat_rate: "19", vat_cents: 18_000 }] });
+      expect(badLine.findings.map((finding) => finding.code)).toEqual(expect.arrayContaining(["LINE_VAT_MISMATCH", "BUYER_DETAILS_MISSING"]));
+    });
+    it("reports a buyer outside Cyprus as out of scope, with no Cyprus reverse charge", () => {
+      const greek = review({ buyer: { country: "GR", vat_registered: true }, supplier: { name: "X GmbH", vat_number: "DE123456789" }, totals: { net_cents: 50_000, vat_cents: 0, gross_cents: 50_000 }, lines: [{ description: "Software licence", net_cents: 50_000 }] });
+      expect(arithmeticOnly(greek)).toEqual(["not_assessed", null, []]);
+      expect(greek.findings.map((finding) => finding.code)).toEqual(["BUYER_OUTSIDE_SCOPE"]);
+      expect(greek.journal_unavailable_reason).toBe("Cyprus entries are not drafted for a buyer outside Cyprus.");
+      // The buyer's EU VAT number alone places it outside Cyprus too.
+      expect(review({ buyer: { vat_number: "EL123456789", vat_registered: true } }).findings.map((finding) => finding.code)).toContain("BUYER_OUTSIDE_SCOPE");
+    });
+    it("keeps the existing behaviour for registered and unregistered Cyprus buyers", () => {
+      const registered = review({ buyer: { country: "CY", vat_registered: true } });
+      expect([registered.treatment.code, registered.findings.map((finding) => finding.code), registered.journal!.lines[1].account]).toEqual(["domestic", ["INPUT_VAT_RECOVERABILITY"], "Input VAT (recoverability to confirm)"]);
+      const unregistered = review({ buyer: { country: "CY", vat_registered: false } });
+      expect([unregistered.treatment.code, unregistered.findings.map((finding) => finding.code), unregistered.journal!.lines.map((line) => [line.account, line.debit_cents, line.credit_cents])]).toEqual(["domestic", ["BUYER_NOT_VAT_REGISTERED"], [["Office expenses", 119_000, 0], ["Accounts payable – Aegean Supplies Synthetic Ltd", 0, 119_000]]]);
+      // A Cyprus VAT number places the buyer in Cyprus; the registration status is still asked for, not inferred.
+      expect(review({ buyer: { vat_number: "CY99999999L" } }).findings.map((finding) => finding.code)).toContain("BUYER_DETAILS_MISSING");
+    });
   });
 });

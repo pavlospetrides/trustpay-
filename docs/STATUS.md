@@ -9,7 +9,9 @@ A first slice of the accounting copilot: `POST /api/v1/accounting/review` checks
 - **For professional review**: the VAT treatment (domestic, zero-rated or exempt, domestic reverse charge for construction, scrap and phones, EU reverse charge, foreign VAT, non-EU supplies), input VAT recoverability (never assumed), missing supplier VAT number, non-euro amounts, capitalisation above a threshold.
 - **Suggestions**: an expense category per line from keyword rules (organization lists accepted), and a balanced draft journal entry, reversed for credit notes.
 
-Not done yet: no screen uses it (it needs net, VAT and line items, which the universal reader in PR #34 extracts once it reaches `main`); organization category lists are passed per request, not stored.
+Buyer details are never assumed: without a confirmed Cyprus buyer (country) and its VAT registration status, the review keeps the arithmetic checks but withholds the Cyprus treatment and the draft entry, and asks for the missing details or reports that a non-Cyprus buyer is out of scope.
+
+Not done yet: no screen uses it. The universal reader that extracts net, VAT and line items is on `main` since #41, so the invoice screens can now pass its reviewed fields and the organization's country and VAT registration. Organization category lists are passed per request, not stored.
 
 ## Verified-account trust and supplier identity checks (#32, merged in [#33](https://github.com/pavlospetrides/trustpay-/pull/33), `df6b51a`)
 

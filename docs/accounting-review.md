@@ -6,6 +6,7 @@
 - Deterministic TypeScript on integer cents (`frontend/src/lib/server/accounting/`). No AI decides a rate, a treatment or an entry.
 - Stateless: nothing is stored, posted to a ledger or filed. Every result is a suggestion for an authorised accountant.
 - Confirmed errors are kept apart from possible tax issues. Missing amounts are reported, never invented. VAT is never assumed recoverable.
+- Buyer details are never assumed. The Cyprus VAT treatment, the Cyprus-specific notes and the draft entry are given only when the buyer is confirmed to be in Cyprus (by `country` or a `CY` VAT number) **and** `vat_registered` is supplied. Otherwise the arithmetic checks, rate checks and category suggestions still run, and the review asks for the missing details or reports that a non-Cyprus buyer is out of scope.
 - Any authenticated organization member can call it (PostgreSQL mode); the local demo serves it without sign-in.
 
 ## Input
@@ -26,7 +27,7 @@ JSON, amounts in integer cents, rates as text (`"19"`, `"19%"`).
 }
 ```
 
-`document_type` (`invoice` or `credit_note`), `buyer`, `vat_breakdown`, `lines` and the threshold are optional. An organization may pass its own `categories` (`id`, `name`, `account`, `keywords`, optional `capitalisable`). The fields match what the universal invoice reader in PR #34 extracts (net, VAT, VAT breakdown, line items, supplier and buyer details), so a screen can pass reviewed values straight through.
+`document_type` (`invoice` or `credit_note`), `vat_breakdown`, `lines` and the threshold are optional. `buyer.country` and `buyer.vat_registered` are optional in the request, but without both (for a Cyprus buyer) no VAT treatment or entry is suggested. An organization may pass its own `categories` (`id`, `name`, `account`, `keywords`, optional `capitalisable`). The fields match what the universal invoice reader in PR #34 extracts (net, VAT, VAT breakdown, line items, supplier and buyer details), so a screen can pass reviewed values straight through.
 
 ## Output
 
@@ -48,14 +49,16 @@ JSON, amounts in integer cents, rates as text (`"19"`, `"19%"`).
 | `RATE_NOT_CYPRUS` | error for a Cyprus supplier, review if the country is unknown | a stated rate that is not a Cyprus rate on the invoice date |
 | `IMPLIED_RATE_UNUSUAL` | review | no rates stated and VAT ÷ net matches no single rate |
 | `MISSING_NET_OR_VAT` | review | the document lacks net or VAT, so nothing can be checked |
-| `INPUT_VAT_RECOVERABILITY` | review | domestic VAT charged: confirm taxable use and no blocked item before claiming |
+| `INPUT_VAT_RECOVERABILITY` | review | domestic VAT charged to a VAT-registered Cyprus buyer: confirm taxable use and no blocked item before claiming |
 | `MISSING_SUPPLIER_VAT_NUMBER` | review | VAT charged without the supplier's VAT number |
 | `ZERO_RATED_OR_EXEMPT` | review | a Cyprus supplier charges no VAT |
 | `POSSIBLE_DOMESTIC_REVERSE_CHARGE` | review | construction (Article 11B), scrap, or phones and tablets (Article 11E) wording from a Cyprus supplier, buyer VAT-registered |
 | `EU_REVERSE_CHARGE` | review | an EU supplier charges no VAT: the buyer self-accounts |
 | `FOREIGN_VAT_CHARGED` | review | foreign VAT is not recoverable through the Cyprus return |
 | `NON_EU_SUPPLY` | review | services: reverse charge; goods: import VAT at customs |
-| `SUPPLIER_COUNTRY_UNKNOWN`, `BUYER_NOT_IN_CYPRUS` | review | the treatment cannot be suggested safely |
+| `BUYER_DETAILS_MISSING` | review | the buyer's country or VAT registration status is missing: no Cyprus treatment or entry until both are given |
+| `BUYER_OUTSIDE_SCOPE` | review | the buyer is outside Cyprus: Cyprus treatment and the entry are outside this review's scope |
+| `SUPPLIER_COUNTRY_UNKNOWN` | review | the treatment cannot be suggested safely |
 | `CAPITALISATION_REVIEW` | review | equipment at or above the threshold (default €1,000) |
 | `CATEGORY_NOT_RECOGNISED` | review | no category keyword matched |
 | `NON_EUR_CURRENCY` | review | the VAT return is in euro |
@@ -81,7 +84,7 @@ Which goods take which reduced rate is a legal classification, so the review che
 
 ## Limits and next steps
 
-- No screen calls it yet. It needs net, VAT and line items, which PR #34 (universal invoice reader) extracts; that PR merged into an already-merged branch and is not on `main`.
+- No screen calls it yet. The universal invoice reader that extracts net, VAT, VAT breakdown and line items reached `main` with PR #41, so the next step is to pass its reviewed fields, plus the organization's own country and VAT registration, into this review on the invoice screens (GUI owner).
 - Organization category lists are passed per request; storing them per organization needs a table (schema change).
 - Keyword categories are simple rules. They explain themselves, but they are not a classifier; the accountant decides.
 - Partial exemption, blocked-input rules, import VAT and the 0% product lists are flagged for review, not computed.

@@ -28,7 +28,7 @@ describe("single-server synthetic API", () => {
     const context = { mode: "sqlite" as const, demo: db };
     const call = (body: unknown) => handleApiRequest(request("v1/accounting/review", "POST", body), ["v1", "accounting", "review"], context);
     try {
-      const ok = await call({ invoice_date: "2026-11-20", currency: "EUR", supplier: { name: "Synthetic Supplier Ltd", country: "CY", vat_number: "CY10012345A" }, totals: { net_cents: 10_000, vat_cents: 1_900, gross_cents: 11_900 }, lines: [{ description: "Office stationery", net_cents: 10_000, vat_rate: "19", vat_cents: 1_900 }] });
+      const ok = await call({ invoice_date: "2026-11-20", currency: "EUR", supplier: { name: "Synthetic Supplier Ltd", country: "CY", vat_number: "CY10012345A" }, buyer: { country: "CY", vat_registered: true }, totals: { net_cents: 10_000, vat_cents: 1_900, gross_cents: 11_900 }, lines: [{ description: "Office stationery", net_cents: 10_000, vat_rate: "19", vat_cents: 1_900 }] });
       expect(ok.status).toBe(200);
       expect(await ok.json()).toMatchObject({ status: "needs_review", treatment: { code: "domestic" }, category: { id: "office_expenses" }, journal: { status: "draft" } });
       expect((await call({ invoice_date: "2026-11-20" })).status).toBe(422);
