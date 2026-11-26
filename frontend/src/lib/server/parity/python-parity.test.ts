@@ -70,6 +70,8 @@ describe("Python parity: invoice reading", () => {
 const VOLATILE = new Set(["created_at", "updated_at", "verified_at"]);
 const scrub = (value: unknown): unknown => Array.isArray(value) ? value.map(scrub)
   : value && typeof value === "object" ? Object.fromEntries(Object.entries(value).map(([key, item]) => [key, VOLATILE.has(key) ? "<volatile>" : scrub(item)])) : value;
+// Deliberate status changes from Python. FastAPI rejected the empty upload form (422) before its mode check; TypeScript refuses intake in SQLite mode first, for any body.
+const INTENDED_STATUS_CHANGES: Record<string, number> = { "POST /api/v1/invoice-intakes": 403 };
 
 describe("Python parity: SQLite demo API", () => {
   const demo = new DemoStore(":memory:");
@@ -80,8 +82,10 @@ describe("Python parity: SQLite demo API", () => {
     if (step.path === "/api/v1/invoice-intakes") init.body = new FormData();
     const request = new Request(`http://localhost${step.path}`, init);
     const response = await handleApiRequest(request, step.path.replace(/^\/api\//, "").split("/"), { mode: "sqlite", demo });
+    const intended = INTENDED_STATUS_CHANGES[`${step.method} ${step.path}`];
+    if (intended !== undefined) { expect(step.status).not.toBe(intended); expect(response.status).toBe(intended); expect(await response.json()).toHaveProperty("detail"); return; }
     // FastAPI's 422 body shape (type/input per issue) is not reproduced; the status and "detail" key are.
-    if (step.status === 422) expect(await response.json()).toHaveProperty("detail");
+    if (step.status === 422) { expect(response.status).toBe(422); expect(await response.json()).toHaveProperty("detail"); }
     else expect({ status: response.status, body: scrub(await response.json()) }).toEqual({ status: step.status, body: step.response });
   });
 });

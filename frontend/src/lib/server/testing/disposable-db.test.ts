@@ -26,7 +26,7 @@ describe.skipIf(!disposableUrl)("disposable Supabase database", () => {
     expect((await call("GET", path, "outsider")).status).toBe(404);
     expect((await call("GET", path, "outsiderA")).status).toBe(403);
     expect((await call("POST", `${path}/approve`, "maker")).status).toBe(403);
-    expect((await call("POST", `${path}/approve`, "approver")).status).toBe(403);
+    expect((await call("POST", `${path}/approve`, "approver")).status).toBe(409);
     expect((await call("POST", `${path}/verify`, "verifier", { evidence_note: "Synthetic independent callback record" })).status).toBe(200);
     expect((await call("POST", `${path}/hold`, "verifier")).body.status).toBe("hold");
     expect((await call("POST", `${path}/release`, "maker")).status).toBe(403);
@@ -41,7 +41,7 @@ describe.skipIf(!disposableUrl)("disposable Supabase database", () => {
     expect([copy.status, copy.body.risk, copy.body.status]).toEqual([201, 100, "blocked"]);
     // Even if a copy slipped through before screening existed, approval re-checks and refuses it.
     await sql("update public.invoices set status='ready', verified_by=$1 where public_id=$2", [verifier, `${id}-COPY`]);
-    expect((await call("POST", `/api/v1/invoices/${id}-COPY/approve`, "approver")).status).toBe(403);
+    expect((await call("POST", `/api/v1/invoices/${id}-COPY/approve`, "approver")).status).toBe(409);
     // A later invoice to the verified account is trusted (+25, ready) only while that verification stands.
     const trusted = await call("POST", "/api/v1/invoices/assess", "maker", { id: `${id}-NEXT`, supplier_id: "TEST-SUP", invoice_number: "NEW-002", amount_cents: 842000, creditor_account: syntheticIban(99), invoice_date: "2026-11-24" });
     expect([trusted.body.risk, trusted.body.status]).toEqual([25, "ready"]);
@@ -49,8 +49,8 @@ describe.skipIf(!disposableUrl)("disposable Supabase database", () => {
     expect((await call("POST", `${path}/reject`, "approver", { reason: "short" })).status).toBe(422);
     const rejected = await call("POST", `${path}/reject`, "approver", { reason: "Synthetic fraud report from supplier" });
     expect([rejected.status, rejected.body.status]).toEqual([200, "rejected"]);
-    expect((await call("POST", `${path}/hold`, "verifier")).status).toBe(403);
-    expect((await call("POST", `/api/v1/invoices/${id}-NEXT/approve`, "approver")).status).toBe(403);
+    expect((await call("POST", `${path}/hold`, "verifier")).status).toBe(409);
+    expect((await call("POST", `/api/v1/invoices/${id}-NEXT/approve`, "approver")).status).toBe(409);
     expect((await sql("select decision,reason from public.payment_approvals a join public.invoices i on i.id=a.invoice_id where i.public_id=$1 and a.decision='rejected'", [id]))).toEqual([{ decision: "rejected", reason: "Synthetic fraud report from supplier" }]);
   });
 
@@ -68,17 +68,17 @@ describe.skipIf(!disposableUrl)("disposable Supabase database", () => {
     expect((await approve("DUP-BASE")).body.status).toBe("approved");
     // Exact copy: hard block, no review possible.
     expect((await assess("DUP-EXACT", "dup-100", "2026-10-15")).status).toBe("blocked");
-    expect((await approve("DUP-EXACT")).status).toBe(403);
-    expect((await review("DUP-EXACT", "reviewer", "distinct")).status).toBe(403);
+    expect((await approve("DUP-EXACT")).status).toBe(409);
+    expect((await review("DUP-EXACT", "reviewer", "distinct")).status).toBe(409);
     // Normalisation-only match against the approved invoice: a verification alone does not clear it; "duplicate" blocks it.
     expect([(await assess("DUP-NEAR", "DUP 0100", "2026-11-01")).risk, (await verify("DUP-NEAR")).status]).toEqual([75, 200]);
-    expect((await approve("DUP-NEAR")).status).toBe(403);
+    expect((await approve("DUP-NEAR")).status).toBe(409);
     expect((await call("GET", "/api/v1/invoices/DUP-NEAR/duplicate-review", "maker")).body.matches).toEqual([expect.objectContaining({ kind: "invoice", id: "DUP-BASE", decision: null })]);
     expect((await review("DUP-NEAR", "reviewer", "duplicate")).body.status).toBe("blocked");
-    expect((await approve("DUP-NEAR")).status).toBe(403);
+    expect((await approve("DUP-NEAR")).status).toBe(409);
     // Normalisation-only match against paid history.
     expect((await assess("DUP-PAID", "hist 0", "2026-11-15")).risk).toBe(75);
-    expect([(await verify("DUP-PAID")).status, (await approve("DUP-PAID")).status]).toEqual([200, 403]);
+    expect([(await verify("DUP-PAID")).status, (await approve("DUP-PAID")).status]).toEqual([200, 409]);
     // A pair confirmed as genuinely different proceeds through normal approval; the maker cannot review their own invoice.
     expect((await assess("DUP-DISTINCT", "DUP_100", "2026-12-01")).risk).toBe(75);
     expect((await review("DUP-DISTINCT", "maker", "distinct")).status).toBe(403);
@@ -121,7 +121,7 @@ describe.skipIf(!disposableUrl)("disposable Supabase database", () => {
     expect(JSON.stringify(invoice)).not.toContain(syntheticIban(99));
     const invoicePath = `/api/v1/invoices/${invoice.id}`;
     expect((await call("GET", `${invoicePath}/documents`, "maker")).body).toHaveLength(1);
-    expect((await call("POST", `${invoicePath}/approve`, "approver")).status).toBe(403);
+    expect((await call("POST", `${invoicePath}/approve`, "approver")).status).toBe(409);
     const history = await call("GET", `${invoicePath}/assessments`, "maker");
     expect([history.status, history.body.length]).toEqual([200, 1]);
     const detail = await call("GET", `${invoicePath}/assessments/${history.body[0].id}`, "maker");
@@ -182,7 +182,7 @@ describe.skipIf(!disposableUrl)("disposable Supabase database", () => {
     expect(status.last_run.records_skipped).toBe(4);
 
     const note = { evidence_note: "Synthetic callback to known supplier contact" };
-    expect((await call("POST", `${path}/approve`, "approver")).status).toBe(403);
+    expect((await call("POST", `${path}/approve`, "approver")).status).toBe(409);
     expect((await call("POST", `${path}/verify`, "owner", note)).status).toBe(403);
     expect((await call("POST", `${path}/verify`, "analyst", note)).status).toBe(200);
     expect((await call("POST", `${path}/approve`, "analyst")).status).toBe(403);

@@ -2,7 +2,16 @@
 
 **Start here:** [handoff for 26 November onward](handoff-2026-11-25.md) lists what merged on 25 November, the owner actions still open and the work order.
 
-## Offline OCR candidate (#42, unmerged branch `feat/ocr-invoice-reader-20261126`)
+## Follow-ups before the redesign — 26 November 2026
+
+Plan and merge order: [follow-ups and PR readiness](plans/2026-11-26-followups-and-pr-readiness.md).
+- **Status codes (#30 b):** in PostgreSQL mode, "you may not do this" stays 403 (role, maker-checker, self-verification) and "not in this state" is now 409 (not ready, needs verification, already approved or paid, final). SQLite mode keeps Python's 409 for both.
+- **Accounts (#32):** dashes are ignored like spaces in both stores, and `normalizeIban` checks the SWIFT registry length per country (a 24-character "CY" IBAN is rejected; CY is 28). Countries outside the table keep the generic 15–34 rule.
+- **Signals (#36):** weight-0 notes no longer show a "+0" badge.
+- **Parity:** the Python parity test now compares the HTTP status of every step. The one deliberate change is intake upload in SQLite mode (403 instead of FastAPI's 422 form error).
+- **Merge order:** #43 and #37 merged on 26 November; then #38, then this PR. #38 conflicts with #37 only in `docs/STATUS.md` and `handler.test.ts` (keep both). This PR moves #37's five duplicate-review database expectations from 403 to 409. #37 added `supabase/migrations/20261126000200_duplicate_reviews.sql`, which the hosted development project needs applied by hand.
+
+## Offline OCR candidate (#42, merged in [#43](https://github.com/pavlospetrides/trustpay-/pull/43))
 
 PDF.js native text and local English/Greek OCR now feed text and word layout to the existing OpenAI universal analyzer when `TRUSTPAY_INVOICE_READER=ocr` is set. Vision remains the default and explicit external-document opt-in still applies. Actual OCR tests cover scanned PDFs, Greek/English text, rotation, blur, low confidence, and native/OCR conflict; the 14-document pack and two unseen generated invoices were measured. The final pack run matched 456/456 measured fields and 14/14 payable totals versus a fresh Vision 456/456. Earlier OCR runs exposed a missed alternative account and one model response that omitted 18 line items; evidence checks and a bounded multi-page retry were added. Estimated API token cost was $0.2394 OCR versus $0.2228 Vision. App, database, and Python-free Windows installation CI passed on commit `fd3b4e3` ([run 45802848853](https://github.com/pavlospetrides/trustpay-/actions/runs/45802848853)). See [evaluation and limits](invoice-ocr-evaluation.md). Hosted signed-in interface verification still awaits restoration of the Supabase egress quota. Human review is required before merging.
 
