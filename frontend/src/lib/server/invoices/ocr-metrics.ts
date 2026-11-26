@@ -1,4 +1,8 @@
 /** Levenshtein character error rate; callers supply independent reference text. */
+export function scoreChecks(checks: boolean[]): { correct: number; total: number } {
+  return { correct: checks.filter(Boolean).length, total: checks.length };
+}
+
 export function characterErrorRate(reference: string, observed: string): { edits: number; reference_characters: number; rate: number | null } {
   const wanted = [...reference];
   const actual = [...observed];

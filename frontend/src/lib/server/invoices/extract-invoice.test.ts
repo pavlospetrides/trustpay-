@@ -9,6 +9,37 @@ import * as ocrReader from "./ocr-reader";
 const pdf = readFileSync(new URL("./fixtures/synthetic-invoice.pdf", import.meta.url));
 
 describe("invoice extraction fallback", () => {
+  it("retries a suspiciously short multi-page OCR line list and counts both calls", async () => {
+    const empty = { value: null, source_value: null, supporting_text: null, page: null, uncertain: false };
+    const fields = (keys: string[]) => Object.fromEntries(keys.map((key) => [key, empty]));
+    const line = universalDocumentSchema.shape.line_items.element.parse({ ...fields(["description", "code", "quantity", "unit", "unit_price", "discount", "net_amount", "vat_rate", "vat_amount", "total_amount"]), description: { ...empty, value: "Service" } });
+    const document = universalDocumentSchema.parse({ document_type: "invoice", languages: ["en"], multiple_invoices: false,
+      document: fields(["invoice_number", "invoice_date", "due_date", "purchase_order_reference", "payment_reference", "original_invoice_reference"]),
+      supplier: fields(["legal_name", "trading_name", "registration_number", "vat_number", "address", "country", "email", "telephone"]),
+      customer: fields(["legal_name", "trading_name", "registration_number", "vat_number", "address", "country", "email", "telephone", "customer_reference"]),
+      accounts: [], financial: fields(["currency", "subtotal", "discounts", "net_amount", "vat_amount", "additional_charges", "shipping", "gross_total", "amount_paid", "outstanding_balance"]), vat_breakdown: [], line_items: [], warnings: [] });
+    const read = vi.spyOn(ocrReader, "readInvoiceEvidence").mockResolvedValueOnce({ text: "Page 1 Page 2", quality: "sufficient", warnings: [], pages: [1, 2].map((number) => ({ number, method: "native_pdf_text", text: "Invoice row", words: [], confidence: 100, width: 600, height: 800, warnings: [] })) });
+    let calls = 0;
+    try {
+      const result = await extractInvoice(pdf, "application/pdf", { extract: async () => { throw new Error("unused"); }, extractTextDocument: async () => { calls++; return { document: { ...document, line_items: calls === 1 ? [] : [line, line] }, usage: { input_tokens: 10, output_tokens: 20 } }; } }, { reader: "ocr" });
+      expect(calls).toBe(2);
+      expect(result.document?.line_items).toHaveLength(2);
+      expect(result.usage).toEqual({ input_tokens: 20, output_tokens: 40 });
+    } finally { read.mockRestore(); }
+  });
+  it("uses configured Vision when OCR text analysis is unavailable", async () => {
+    const empty = { value: null, source_value: null, supporting_text: null, page: null, uncertain: false };
+    const fields = (keys: string[]) => Object.fromEntries(keys.map((key) => [key, empty]));
+    const document = universalDocumentSchema.parse({ document_type: "invoice", languages: ["en"], multiple_invoices: false,
+      document: fields(["invoice_number", "invoice_date", "due_date", "purchase_order_reference", "payment_reference", "original_invoice_reference"]),
+      supplier: fields(["legal_name", "trading_name", "registration_number", "vat_number", "address", "country", "email", "telephone"]),
+      customer: fields(["legal_name", "trading_name", "registration_number", "vat_number", "address", "country", "email", "telephone", "customer_reference"]),
+      accounts: [], financial: fields(["currency", "subtotal", "discounts", "net_amount", "vat_amount", "additional_charges", "shipping", "gross_total", "amount_paid", "outstanding_balance"]), vat_breakdown: [], line_items: [], warnings: [] });
+    let visionCalled = false;
+    const result = await extractInvoice(pdf, "application/pdf", { extract: async () => { throw new Error("unused"); }, extractTextDocument: async () => { throw new ProviderUnavailable("Text analysis provider unavailable"); }, extractDocument: async () => { visionCalled = true; return { document, usage: { input_tokens: 1, output_tokens: 1 } }; } }, { reader: "ocr" });
+    expect(visionCalled).toBe(true);
+    expect(result.method).toBe("openai_vision");
+  });
   it("uses authorized Vision when the local OCR engine fails", async () => {
     const read = vi.spyOn(ocrReader, "readInvoiceEvidence").mockRejectedValueOnce(new Error("Local OCR unavailable"));
     try {

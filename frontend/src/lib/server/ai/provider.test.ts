@@ -2,6 +2,13 @@ import { describe, expect, it } from "vitest";
 import { OpenAIInvoiceProvider, ProviderUnavailable } from "./provider";
 
 describe("OpenAI invoice adapter boundary", () => {
+  it("rejects oversized OCR evidence before silently dropping later pages", async () => {
+    let called = false;
+    const provider = new OpenAIInvoiceProvider("test-model", { responses: { parse: async () => { called = true; throw new Error("Should not call provider"); } } });
+    const pages = Array.from({ length: 10 }, (_, index) => ({ number: index + 1, method: "ocr" as const, text: "A".repeat(15_000), words: [], confidence: 90, width: 800, height: 1100, warnings: [] }));
+    await expect(provider.extractTextDocument({ pages, text: "", quality: "sufficient", warnings: [] })).rejects.toThrow("OCR evidence exceeds text analysis limit");
+    expect(called).toBe(false);
+  });
   it("structures OCR text and layout without attaching document bytes", async () => {
     let request: Record<string, unknown> = {};
     const empty = { value: null, source_value: null, supporting_text: null, page: null, uncertain: false };

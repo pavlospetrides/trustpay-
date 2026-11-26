@@ -31,6 +31,7 @@ describe.runIf(process.env.TRUSTPAY_LIVE_TEST_PACK === "1")("supplied synthetic 
     const reader = process.env.TRUSTPAY_TEST_PACK_READER === "ocr" ? "ocr" : "vision";
     const report: ResultRow[] = [];
     const fieldAccuracy: Record<string, { correct: number; total: number }> = {};
+    const payableTotalAccuracy = { correct: 0, total: 0 };
     for (const [index, file] of files.entries()) {
       const sample = references.get(basename(file, extname(file)));
       if (!sample) throw new Error(`Missing reference for ${file}`);
@@ -70,6 +71,8 @@ describe.runIf(process.env.TRUSTPAY_LIVE_TEST_PACK === "1")("supplied synthetic 
       compare("net_total", sample.net_total, document?.financial.net_amount.value ?? document?.financial.subtotal.value ?? null, true);
       compare("vat_total", sample.vat_total, document?.financial.vat_amount.value ?? null, true);
       compare("printed_gross_total", sample.printed_gross_total, document?.financial.gross_total.value ?? null, true);
+      payableTotalAccuracy.total++;
+      if (minorUnits(sample.printed_gross_total) === minorUnits(result.fields.total_amount)) payableTotalAccuracy.correct++;
       const expectedPayableIban = sample.alternative_iban ? null : (() => { try { return sample.iban ? normalizeIban(sample.iban) : null; } catch { return null; } })();
       compare("payable_iban", expectedPayableIban, result.fields.iban);
       const expectedAccounts = [sample.iban, sample.alternative_iban].filter((value): value is string => Boolean(value)).map((value) => value.replaceAll(" ", "")).sort().join("|");
@@ -93,9 +96,17 @@ describe.runIf(process.env.TRUSTPAY_LIVE_TEST_PACK === "1")("supplied synthetic 
     const comparedFields = Object.values(fieldAccuracy).reduce((sum, field) => sum + field.total, 0);
     const correctFields = Object.values(fieldAccuracy).reduce((sum, field) => sum + field.correct, 0);
     const mismatches = report.flatMap((item) => item.mismatches.map((difference) => ({ case_index: item.case_index, ...difference })));
-    const summary = { reader, documents: report.length, compared_fields: comparedFields, correct_fields: correctFields, accuracy: correctFields / comparedFields, field_accuracy: fieldAccuracy, total_elapsed_ms: report.reduce((sum, item) => sum + item.elapsed_ms, 0), total_estimated_api_cost_usd: Number(report.reduce((sum, item) => sum + item.estimated_api_cost_usd, 0).toFixed(6)), mean_ocr_cer: (() => { const values = report.flatMap((item) => item.ocr_cer === null ? [] : [item.ocr_cer]); return values.length ? values.reduce((sum, value) => sum + value, 0) / values.length : null; })(), unscored_derived_line_values: files.reduce((sum, file) => sum + (references.get(basename(file, extname(file)))?.line_items.length ?? 0) * 2, 0), api_failures: report.filter((item) => item.error), mismatches, results: report };
+    const summary = { reader, documents: report.length, compared_fields: comparedFields, correct_fields: correctFields, accuracy: correctFields / comparedFields, field_accuracy: fieldAccuracy, payable_total_accuracy: payableTotalAccuracy, total_elapsed_ms: report.reduce((sum, item) => sum + item.elapsed_ms, 0), total_estimated_api_cost_usd: Number(report.reduce((sum, item) => sum + item.estimated_api_cost_usd, 0).toFixed(6)), mean_ocr_cer: (() => { const values = report.flatMap((item) => item.ocr_cer === null ? [] : [item.ocr_cer]); return values.length ? values.reduce((sum, value) => sum + value, 0) / values.length : null; })(), unscored_derived_line_values: files.reduce((sum, file) => sum + (references.get(basename(file, extname(file)))?.line_items.length ?? 0) * 2, 0), api_failures: report.filter((item) => item.error), mismatches, results: report };
     const reportName = process.env.TRUSTPAY_TEST_PACK_CASE ? "invoice-test-pack-case-evaluation.json" : reader === "ocr" ? "invoice-test-pack-ocr-evaluation.json" : "invoice-test-pack-vision-rerun.json";
     writeFileSync(resolve(process.cwd(), "../docs", reportName), `${JSON.stringify(summary, null, 2)}\n`);
     expect(report).toHaveLength(files.length);
+    if (reader === "ocr" && !process.env.TRUSTPAY_TEST_PACK_CASE) {
+      for (const field of ["supplier", "invoice_number", "issue_date", "printed_gross_total", "currency", "payable_iban", "printed_account_ibans"]) {
+        expect(fieldAccuracy[field], `${field} must match every independent reference`).toEqual({ correct: files.length, total: files.length });
+      }
+      expect(payableTotalAccuracy, "payable total must match every independent reference").toEqual({ correct: files.length, total: files.length });
+      expect(correctFields).toBeGreaterThanOrEqual(454);
+      expect(summary.api_failures).toHaveLength(0);
+    }
   }, 900_000);
 });

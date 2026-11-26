@@ -1,13 +1,14 @@
 import { copyFileSync, mkdtempSync, rmdirSync, unlinkSync } from "node:fs";
-import { dirname, join } from "node:path";
+import { join } from "node:path";
 import { tmpdir } from "node:os";
-import { getDocument } from "pdfjs-dist/legacy/build/pdf.mjs";
+import { getDocument, OPS } from "pdfjs-dist/legacy/build/pdf.mjs";
 import { PDFParse } from "pdf-parse";
 import sharp from "sharp";
 import { createWorker } from "tesseract.js";
 import engLanguage from "@tesseract.js-data/eng";
 import ellLanguage from "@tesseract.js-data/ell";
 import { readDocument } from "./document";
+import { validIbansInText } from "./bank-evidence";
 
 export type EvidenceWord = { text: string; confidence: number | null; box: { x: number; y: number; width: number; height: number } };
 export type EvidencePage = { number: number; method: "native_pdf_text" | "ocr"; text: string; words: EvidenceWord[]; confidence: number; width: number; height: number; rotation_radians?: number | null; orientation_degrees?: number; warnings: string[] };
@@ -15,8 +16,11 @@ export type InvoiceEvidence = { pages: EvidencePage[]; text: string; quality: "s
 
 const MAX_PIXELS = 20_000_000;
 const MAX_OCR_CHARS = 100_000;
+export function boundedPageText(text: string): { text: string; warnings: string[] } {
+  return text.length > MAX_OCR_CHARS ? { text: text.slice(0, MAX_OCR_CHARS), warnings: ["PAGE_TEXT_LIMIT"] } : { text, warnings: [] };
+}
 const TWO_LANGUAGES = ["eng", "ell"] as const;
-const LANGUAGE_ROOTS = { eng: dirname(engLanguage.langPath), ell: dirname(ellLanguage.langPath) };
+export const languageAssetSources = () => ({ eng: join(engLanguage.langPath, "eng.traineddata.gz"), ell: join(ellLanguage.langPath, "ell.traineddata.gz") });
 let activeOcr = 0;
 const waitingOcr: Array<() => void> = [];
 
@@ -35,9 +39,9 @@ export async function limitedOcr<T>(work: () => Promise<T>): Promise<T> {
 
 function localLanguages(): string {
   const directory = mkdtempSync(join(tmpdir(), "trustpay-ocr-"));
+  const sources = languageAssetSources();
   for (const code of TWO_LANGUAGES) {
-    const root = LANGUAGE_ROOTS[code];
-    copyFileSync(join(root, "4.0.0_best_int", `${code}.traineddata.gz`), join(directory, `${code}.traineddata.gz`));
+    copyFileSync(sources[code], join(directory, `${code}.traineddata.gz`));
   }
   return directory;
 }
@@ -59,6 +63,20 @@ function linesFromWords(words: EvidenceWord[]): string {
   return lines.map((line) => line.sort((a, b) => a.box.x - b.box.x).map((word) => word.text).join(" ")).join("\n");
 }
 
+function nativeOcrConflict(native: string, ocr: string): boolean {
+  if (!usableNative(ocr)) return true;
+  const nativeAccounts = validIbansInText(native);
+  const ocrAccounts = validIbansInText(ocr);
+  if (nativeAccounts.size !== ocrAccounts.size || [...nativeAccounts].some((account) => !ocrAccounts.has(account))) return true;
+  const financialTokens = (value: string) => new Set((value.toUpperCase().match(/[\p{L}\p{N}.,/-]*\d[\p{L}\p{N}.,/-]*/gu) ?? []).map((token) => token.replace(/[^\p{L}\p{N}]/gu, "")).filter((token) => token.length >= 2));
+  const nativeFinancial = financialTokens(native);
+  const ocrFinancial = financialTokens(ocr);
+  if ([...nativeFinancial].some((token) => !ocrFinancial.has(token))) return true;
+  const sourceWords = [...new Set(native.toUpperCase().match(/[\p{L}\p{N}]{3,}/gu) ?? [])];
+  const seen = new Set(ocr.toUpperCase().match(/[\p{L}\p{N}]{3,}/gu) ?? []);
+  return sourceWords.length >= 3 && sourceWords.filter((word) => seen.has(word)).length / sourceWords.length < 0.55;
+}
+
 async function recognizeImage(data: Buffer, width: number, height: number, number: number): Promise<EvidencePage> {
   const langPath = localLanguages();
   let worker: Awaited<ReturnType<typeof createWorker>> | null = null;
@@ -77,7 +95,8 @@ async function recognizeImage(data: Buffer, width: number, height: number, numbe
         words.push({ text: word.text.trim(), confidence: word.confidence, box: { x: word.bbox.x0, y: word.bbox.y0, width: word.bbox.x1 - word.bbox.x0, height: word.bbox.y1 - word.bbox.y0 } });
       }
       const text = linesFromWords(words) || output.data.text.trim();
-      candidates.push({ number, method: "ocr", text: text.slice(0, MAX_OCR_CHARS), words, confidence: output.data.confidence, width: dimensions.width ?? width, height: dimensions.height ?? height, rotation_radians: output.data.rotateRadians, orientation_degrees: orientation, warnings: [] });
+      const bounded = boundedPageText(text);
+      candidates.push({ number, method: "ocr", text: bounded.text, words, confidence: output.data.confidence, width: dimensions.width ?? width, height: dimensions.height ?? height, rotation_radians: output.data.rotateRadians, orientation_degrees: orientation, warnings: bounded.warnings });
     };
     await run(base, 0);
     if (candidates[0].confidence < 75 || !usableNative(candidates[0].text)) {
@@ -119,15 +138,23 @@ async function readInvoiceEvidenceUnbounded(data: Buffer, contentType: string, o
           return [{ text: item.str.trim(), confidence: null, box: { x, y: y - Math.abs(item.height), width: Math.abs(item.width), height: Math.abs(item.height) } }];
         });
         const nativeText = linesFromWords(words);
-        if (!options.forceOcr && usableNative(nativeText)) pages.push({ number, method: "native_pdf_text", text: nativeText.slice(0, MAX_OCR_CHARS), words, confidence: 100, width: viewport.width, height: viewport.height, warnings: [] });
+        const nativeUsable = usableNative(nativeText);
+        const operators = nativeUsable && !options.forceOcr ? await page.getOperatorList() : null;
+        const containsRaster = Boolean(operators?.fnArray.some((operator) => [OPS.paintImageXObject, OPS.paintInlineImageXObject, OPS.paintInlineImageXObjectGroup, OPS.paintImageXObjectRepeat].includes(operator)));
+        if (!options.forceOcr && nativeUsable && !containsRaster) {
+          const bounded = boundedPageText(nativeText);
+          pages.push({ number, method: "native_pdf_text", text: bounded.text, words, confidence: 100, width: viewport.width, height: viewport.height, warnings: bounded.warnings });
+        }
         else {
           const scale = Math.min(300 / 72, Math.sqrt(MAX_PIXELS / (viewport.width * viewport.height)));
           const render = (await parser.getScreenshot({ partial: [number], scale, imageDataUrl: false, imageBuffer: true })).pages[0];
           const ocr = await recognizeImage(Buffer.from(render.data), render.width, render.height, number);
+          const conflict = nativeUsable && containsRaster && nativeOcrConflict(nativeText, ocr.text);
           const nativeWords = nativeText.toUpperCase().match(/[\p{L}\p{N}]{3,}/gu) ?? [];
           const seen = new Set(ocr.text.toUpperCase().match(/[\p{L}\p{N}]{3,}/gu) ?? []);
-          if (nativeWords.length >= 3 && nativeWords.filter((word) => seen.has(word)).length / nativeWords.length < 0.75) ocr.warnings.push("NATIVE_OCR_CONFLICT");
-          pages.push(ocr);
+          if (conflict || !nativeUsable && nativeWords.length >= 3 && nativeWords.filter((word) => seen.has(word)).length / nativeWords.length < 0.75) ocr.warnings.push("NATIVE_OCR_CONFLICT");
+          const bounded = boundedPageText(nativeText);
+          pages.push(nativeUsable && containsRaster && !conflict ? { number, method: "native_pdf_text", text: bounded.text, words, confidence: 100, width: viewport.width, height: viewport.height, warnings: bounded.warnings } : ocr);
         }
         page.cleanup();
       }

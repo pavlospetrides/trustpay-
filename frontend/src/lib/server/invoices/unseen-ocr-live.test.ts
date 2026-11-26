@@ -7,7 +7,7 @@ import sharp from "sharp";
 import { OpenAIInvoiceProvider } from "../ai/provider";
 import { extractInvoice } from "./extract-invoice";
 import { readInvoiceEvidence } from "./ocr-reader";
-import { characterErrorRate } from "./ocr-metrics";
+import { characterErrorRate, scoreChecks } from "./ocr-metrics";
 
 config({ path: resolve(process.cwd(), ".env.local"), quiet: true });
 
@@ -19,12 +19,13 @@ describe.runIf(process.env.TRUSTPAY_LIVE_UNSEEN_OCR === "1")("new synthetic OCR 
   const rows: Array<{ format: string; cer: number | null; method: string; elapsed_ms: number; input_tokens: number; output_tokens: number; estimated_api_cost_usd: number; critical_fields_correct: number; critical_fields_total: number }> = [];
   const normalize = (text: string) => [...text.normalize("NFKC").toUpperCase()].filter((character) => /[\p{L}\p{N}]/u.test(character)).join("");
   const reference = (svg: Buffer) => [...svg.toString().matchAll(/<text[^>]*>([^<]+)<\/text>/g)].map((match) => match[1]).join(" ");
-  const record = async (format: string, bytes: Buffer, svg: Buffer, result: Awaited<ReturnType<typeof extractInvoice>>, elapsed_ms: number) => {
+  const record = async (format: string, bytes: Buffer, svg: Buffer, result: Awaited<ReturnType<typeof extractInvoice>>, elapsed_ms: number, checks: boolean[]) => {
     const evidence = await readInvoiceEvidence(bytes, format);
     const cer = characterErrorRate(normalize(reference(svg)), normalize(evidence.text)).rate;
     const input = result.usage?.input_tokens ?? 0;
     const output = result.usage?.output_tokens ?? 0;
-    rows.push({ format, cer, method: result.method, elapsed_ms, input_tokens: input, output_tokens: output, estimated_api_cost_usd: Number(((input * 0.75 + output * 4.5) / 1_000_000).toFixed(6)), critical_fields_correct: 6, critical_fields_total: 6 });
+    const score = scoreChecks(checks);
+    rows.push({ format, cer, method: result.method, elapsed_ms, input_tokens: input, output_tokens: output, estimated_api_cost_usd: Number(((input * 0.75 + output * 4.5) / 1_000_000).toFixed(6)), critical_fields_correct: score.correct, critical_fields_total: score.total });
   };
   afterAll(() => { if (rows.length) writeFileSync(resolve(process.cwd(), "../docs/invoice-ocr-unseen-evaluation.json"), `${JSON.stringify({ generated_synthetic_cases: rows.length, results: rows }, null, 2)}\n`); });
   it("populates financial review fields from an unfamiliar photographed invoice", async () => {
@@ -35,7 +36,7 @@ describe.runIf(process.env.TRUSTPAY_LIVE_UNSEEN_OCR === "1")("new synthetic OCR 
     expect(result.method).toBe("openai_ocr_text");
     expect(result.fields).toMatchObject({ supplier_name: "IONIC LABS LTD", invoice_number: "INV-NEW-934", invoice_date: "2026-11-26", total_amount: "285.60", currency: "EUR", iban: "GB82WEST12345698765432" });
     expect(result.document?.line_items.length).toBeGreaterThan(0);
-    await record("image/jpeg", photo, svg, result, Math.round(performance.now() - started));
+    await record("image/jpeg", photo, svg, result, Math.round(performance.now() - started), [result.fields.supplier_name === "IONIC LABS LTD", result.fields.invoice_number === "INV-NEW-934", result.fields.invoice_date === "2026-11-26", result.fields.total_amount === "285.60", result.fields.currency === "EUR", result.fields.iban === "GB82WEST12345698765432"]);
   }, 120_000);
 
   it("populates review fields from an unfamiliar Greek and English scanned PDF", async () => {
@@ -52,6 +53,6 @@ describe.runIf(process.env.TRUSTPAY_LIVE_UNSEEN_OCR === "1")("new synthetic OCR 
     expect(result.fields).toMatchObject({ invoice_number: "CY-NEW-915", invoice_date: "2026-11-26", total_amount: "285.60", currency: "EUR", iban: "GB82WEST12345698765432" });
     expect(result.fields.supplier_name).toContain("ΚΥΠΡΟΣ");
     expect(result.document?.line_items.length).toBeGreaterThan(0);
-    await record("application/pdf", bytes, svg, result, Math.round(performance.now() - started));
+    await record("application/pdf", bytes, svg, result, Math.round(performance.now() - started), [Boolean(result.fields.supplier_name?.includes("ΚΥΠΡΟΣ")), result.fields.invoice_number === "CY-NEW-915", result.fields.invoice_date === "2026-11-26", result.fields.total_amount === "285.60", result.fields.currency === "EUR", result.fields.iban === "GB82WEST12345698765432"]);
   }, 120_000);
 });
