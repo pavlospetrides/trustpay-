@@ -2,6 +2,12 @@ import { describe, expect, it } from "vitest";
 import { extractionPresentation, missingReviewFields, validateInvoiceFile } from "./intake";
 
 describe("invoice intake validation", () => {
+  it("warns reviewers about OCR uncertainty in the intake interface", () => {
+    expect(extractionPresentation({ method: "openai_ocr_text", error_code: "OCR_LOW_CONFIDENCE", status: "needs_review" })).toEqual({ method: "OCR + OpenAI Text", outcome: "Manual Review Required", warning: "OCR quality is insufficient. Compare every financial field with the original document." });
+  });
+  it("names the unavailable text analyzer accurately", () => {
+    expect(extractionPresentation({ method: "local_ocr_text", error_code: "TEXT_ANALYSIS_PROVIDER_UNAVAILABLE", status: "needs_review" }).warning).toMatch(/OpenAI text analysis was unavailable/);
+  });
   it("accepts a synthetic PDF within the 10 MB cap", () => {
     expect(validateInvoiceFile({ name: "synthetic.pdf", type: "application/pdf", size: 4096 })).toBeNull();
     expect(validateInvoiceFile({ name: "synthetic.webp", type: "image/webp", size: 4096 })).toBeNull();

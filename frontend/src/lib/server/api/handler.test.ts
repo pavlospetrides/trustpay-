@@ -6,6 +6,15 @@ import type { ApiContext } from "./handler";
 const request = (path: string, method = "GET", body?: unknown) => new Request(`http://127.0.0.1:3000/api/${path}`, { method, headers: body ? { "Content-Type": "application/json" } : undefined, body: body ? JSON.stringify(body) : undefined });
 
 describe("single-server synthetic API", () => {
+  it("reports the selected OCR reader in health", async () => {
+    const previous = process.env.TRUSTPAY_INVOICE_READER;
+    process.env.TRUSTPAY_INVOICE_READER = "ocr";
+    try {
+      const context = { mode: "postgres", aiEnabled: true, pg: { health: async () => {} } } as unknown as ApiContext;
+      const response = await handleApiRequest(request("health"), ["health"], context);
+      expect((await response.json()).invoice_reader).toBe("openai_ocr_text");
+    } finally { if (previous === undefined) delete process.env.TRUSTPAY_INVOICE_READER; else process.env.TRUSTPAY_INVOICE_READER = previous; }
+  });
   it("serves the 75-score verification and approval workflow with separate audit events", async () => {
     const db = new DemoStore(":memory:");
     const context = { mode: "sqlite" as const, demo: db };
@@ -34,6 +43,16 @@ describe("single-server synthetic API", () => {
       expect((await call({ invoice_date: "2026-11-20" })).status).toBe(422);
       // Nothing is stored: the demo invoices and audit trail are unchanged.
       expect(db.audit().some((event) => event.action.includes("ACCOUNT"))).toBe(false);
+    } finally { db.close(); }
+  });
+  it("serves the duplicate-review route and validates its input", async () => {
+    const db = new DemoStore(":memory:");
+    const context = { mode: "sqlite" as const, demo: db };
+    const call = (path: string, method = "GET", body?: unknown) => handleApiRequest(request(`v1/${path}`, method, body), ["v1", ...path.split("/")], context);
+    try {
+      expect((await call("invoices/INV-2409/duplicate-review", "POST", { decision: "distinct", reason: "Nothing to review here at all" })).status).toBe(409);
+      expect((await call("invoices/INV-2409/duplicate-review", "POST", { decision: "maybe", reason: "Not a valid decision value" })).status).toBe(422);
+      expect(await (await call("invoices/INV-2409/duplicate-review")).json()).toEqual({ invoice_id: "INV-2409", invoice_number: "AS-2026-114", matches: [] });
     } finally { db.close(); }
   });
   it("rejects NUL characters in evidence before they reach storage", async () => {
