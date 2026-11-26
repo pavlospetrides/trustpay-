@@ -6,6 +6,15 @@ import type { ApiContext } from "./handler";
 const request = (path: string, method = "GET", body?: unknown) => new Request(`http://127.0.0.1:3000/api/${path}`, { method, headers: body ? { "Content-Type": "application/json" } : undefined, body: body ? JSON.stringify(body) : undefined });
 
 describe("single-server synthetic API", () => {
+  it("reports the selected OCR reader in health", async () => {
+    const previous = process.env.TRUSTPAY_INVOICE_READER;
+    process.env.TRUSTPAY_INVOICE_READER = "ocr";
+    try {
+      const context = { mode: "postgres", aiEnabled: true, pg: { health: async () => {} } } as unknown as ApiContext;
+      const response = await handleApiRequest(request("health"), ["health"], context);
+      expect((await response.json()).invoice_reader).toBe("openai_ocr_text");
+    } finally { if (previous === undefined) delete process.env.TRUSTPAY_INVOICE_READER; else process.env.TRUSTPAY_INVOICE_READER = previous; }
+  });
   it("serves the 75-score verification and approval workflow with separate audit events", async () => {
     const db = new DemoStore(":memory:");
     const context = { mode: "sqlite" as const, demo: db };

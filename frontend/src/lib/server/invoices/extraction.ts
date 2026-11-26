@@ -28,7 +28,7 @@ const labelMap: Record<string, keyof InvoiceDraftFields> = {
   currency: "currency", iban: "iban", "payment reference": "payment_reference",
 };
 const emptyFields = (): InvoiceDraftFields => ({ supplier_name: null, registration_number: null, vat_number: null, invoice_number: null, invoice_date: null, due_date: null, total_amount: null, currency: null, iban: null, payment_reference: null });
-export interface ExtractionResult { fields: InvoiceDraftFields; uncertain_fields: string[]; method: "local_pdf_text" | "openai_vision"; status: "needs_review" | "provider_unavailable"; error_code: string | null; document?: UniversalDocument; findings?: ValidationFinding[]; usage?: { input_tokens: number; output_tokens: number }; page_count?: number }
+export interface ExtractionResult { fields: InvoiceDraftFields; uncertain_fields: string[]; method: "local_pdf_text" | "local_ocr_text" | "openai_ocr_text" | "openai_vision"; status: "needs_review" | "provider_unavailable"; error_code: string | null; document?: UniversalDocument; findings?: ValidationFinding[]; usage?: { input_tokens: number; output_tokens: number }; page_count?: number }
 
 const months: Record<string, string> = { jan: "01", feb: "02", mar: "03", apr: "04", may: "05", jun: "06", jul: "07", aug: "08", sep: "09", oct: "10", nov: "11", dec: "12" };
 function englishDate(value: string): string | null {

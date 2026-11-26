@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { IntakeStore } from "./intake-store";
+import { IntakeStore, cacheableExtractionMethod } from "./intake-store";
 import { PrivateInvoiceStorage } from "./private-storage";
 import { AccountProtector } from "../security/account";
 import { PgStore } from "../database/postgres-store";
@@ -10,6 +10,10 @@ const org = "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa";
 const id = "bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb";
 
 describe("tenant-scoped intake review", () => {
+  it("does not reuse a Vision extraction for an OCR-mode upload", () => {
+    expect(cacheableExtractionMethod("ocr")).toBe("openai_ocr_text");
+    expect(cacheableExtractionMethod("vision")).toBe("openai_vision");
+  });
   it("does not consume a retry when no intelligent reader is configured", async () => {
     const connection = { query: async (sql: string) => sql.includes("from public.invoice_intakes t") ? { rows: [{ id, organization_id: org, status: "needs_review", extraction_attempts: 0 }] } : { rows: [] }, release: () => {} };
     const pool = { connect: async () => connection };

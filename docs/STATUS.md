@@ -2,6 +2,10 @@
 
 **Start here:** [handoff for 26 November onward](handoff-2026-11-25.md) lists what merged on 25 November, the owner actions still open and the work order.
 
+## Offline OCR candidate (#42, unmerged branch `feat/ocr-invoice-reader-20261126`)
+
+PDF.js native text and local English/Greek OCR now feed text and word layout to the existing OpenAI universal analyzer when `TRUSTPAY_INVOICE_READER=ocr` is set. Vision remains the default and explicit external-document opt-in still applies. Actual OCR tests cover scanned PDFs, Greek/English text, rotation, blur, low confidence, and native/OCR conflict; the 14-document pack and two unseen generated invoices were measured. The final pack run matched 456/456 measured fields and 14/14 payable totals versus a fresh Vision 456/456. Earlier OCR runs exposed a missed alternative account and one model response that omitted 18 line items; evidence checks and a bounded multi-page retry were added. Estimated API token cost was $0.2394 OCR versus $0.2228 Vision. App, database, and Python-free Windows installation CI passed on commit `fd3b4e3` ([run 45802848853](https://github.com/pavlospetrides/trustpay-/actions/runs/45802848853)). See [evaluation and limits](invoice-ocr-evaluation.md). Hosted signed-in interface verification still awaits restoration of the Supabase egress quota. Human review is required before merging.
+
 ## Hosted development auth blocker — 26 November 2026
 
 The designated Supabase development project reported `exceed_egress_quota` during a signed-in Playwright rerun on 26 November. The test stopped at login before uploading an invoice. The project owner must restore service by resolving the quota or spend cap before hosted browser checks can resume. Earlier signed-in invoice review runs passed; local unit checks and live synthetic OpenAI extraction are separate from this hosted auth failure. This is unmerged branch evidence from `fix/invoice-extraction-fallback-20261125`.

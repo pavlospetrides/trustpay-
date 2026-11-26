@@ -16,6 +16,7 @@ import { PrivateInvoiceStorage } from "./private-storage";
 type Reviewed = ReturnType<typeof reviewedInvoiceSchema.parse>;
 type IntakeRow = { id: string; organization_id: string; uploaded_by: string; storage_path: string; content_type: string; size_bytes: number; sha256: string; status: InvoiceIntake["status"]; fields_encrypted: Buffer | null; uncertain_fields: string[]; extraction_method: InvoiceIntake["method"]; error_code: string | null; extraction_attempts: number; explanation: string | null; explanation_method: InvoiceIntake["explanation_method"]; invoice_public_id: string | null; created_at: Date | string };
 const sourceExtensions: Record<string, string> = { "application/pdf": ".pdf", "image/png": ".png", "image/jpeg": ".jpg", "image/webp": ".webp" };
+export const cacheableExtractionMethod = (reader: "ocr" | "vision") => reader === "ocr" ? "openai_ocr_text" as const : "openai_vision" as const;
 const writable = (principal: Principal) => { if (!["owner", "admin", "analyst"].includes(principal.role)) throw new Error("Role cannot review invoice intakes"); };
 function correctedPaths(before: unknown, after: unknown, prefix = ""): string[] {
   if (before === after) return [];
@@ -30,14 +31,15 @@ export class IntakeStore {
   private readonly activeExtractions = new Map<string, Promise<ExtractionResult>>();
   constructor(private readonly pool: ConnectionPool, private readonly store: PgStore, private readonly storage: PrivateInvoiceStorage, private readonly provider: OpenAIInvoiceProvider | null) {}
   private async extractCached(data: Buffer, contentType: string, organizationId: string, digest: string): Promise<ExtractionResult> {
-    const key = `${organizationId}:${digest}`;
+    const method = cacheableExtractionMethod(process.env.TRUSTPAY_INVOICE_READER === "ocr" ? "ocr" : "vision");
+    const key = `${organizationId}:${digest}:${method}`;
     const running = this.activeExtractions.get(key);
     if (running) return running;
     const pending = (async () => {
-      const cached = await this.read(async (con) => (await con.query(`select id,fields_encrypted,uncertain_fields,extraction_method from public.invoice_intakes where organization_id=$1 and sha256=$2 and extraction_method='openai_vision' and fields_encrypted is not null order by created_at desc limit 1`, [organizationId, digest])).rows[0] as Pick<IntakeRow, "id" | "fields_encrypted" | "uncertain_fields" | "extraction_method"> | undefined);
+      const cached = await this.read(async (con) => (await con.query(`select id,fields_encrypted,uncertain_fields,extraction_method,error_code from public.invoice_intakes where organization_id=$1 and sha256=$2 and extraction_method=$3 and fields_encrypted is not null order by created_at desc limit 1`, [organizationId, digest, method])).rows[0] as Pick<IntakeRow, "id" | "fields_encrypted" | "uncertain_fields" | "extraction_method" | "error_code"> | undefined);
       if (cached?.fields_encrypted) {
         const payload = this.store.protector.draftCipher().open(cached.fields_encrypted, organizationId, cached.id);
-        if (payload.document) return { fields: (payload.original_fields ?? payload.fields) as InvoiceIntake["fields"], uncertain_fields: cached.uncertain_fields, method: "openai_vision" as const, status: "needs_review" as const, error_code: null, document: payload.document as ExtractionResult["document"], findings: payload.findings as ExtractionResult["findings"], page_count: payload.page_count as number, usage: { input_tokens: 0, output_tokens: 0 } };
+        if (payload.document) return { fields: (payload.original_fields ?? payload.fields) as InvoiceIntake["fields"], uncertain_fields: cached.uncertain_fields, method, status: "needs_review" as const, error_code: cached.error_code, document: payload.document as ExtractionResult["document"], findings: payload.findings as ExtractionResult["findings"], page_count: payload.page_count as number, usage: { input_tokens: 0, output_tokens: 0 } };
       }
       return extractInvoice(data, contentType, this.provider);
     })();
