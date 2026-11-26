@@ -86,4 +86,10 @@ describe("single-server synthetic API", () => {
     const response = await handleApiRequest(new Request("http://localhost/api/v1/invoices", { headers: { Authorization: "Bearer synthetic-token" } }), ["v1", "invoices"], context);
     expect(response.status).toBe(403);
   });
+  it("reports unavailable extraction retries as a service error", async () => {
+    const context = { mode: "postgres", pg: { membershipRows: async () => [{ organizationId: "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa", role: "analyst" }] }, verifyToken: async () => "11111111-1111-4111-8111-111111111111", intake: { retry: async () => { throw new Error("OpenAI extraction is not configured for this environment"); } } } as unknown as ApiContext;
+    const path = ["v1", "invoice-intakes", "bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb", "extract"];
+    const response = await handleApiRequest(new Request(`http://localhost/api/${path.join("/")}`, { method: "POST", headers: { Authorization: "Bearer synthetic-token", "X-Organization-Id": "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa" } }), path, context);
+    expect([response.status, (await response.json()).detail]).toEqual([503, "OpenAI extraction is not configured for this environment"]);
+  });
 });

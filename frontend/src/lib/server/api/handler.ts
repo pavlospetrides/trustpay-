@@ -43,7 +43,7 @@ function errorResponse(error: unknown, mode: ApiContext["mode"]): Response {
   if (/Authentication required|Invalid or expired access token/.test(message)) return json({ detail: message }, 401);
   if (/X-Organization-Id is required|Invalid organization ID/.test(message)) return json({ detail: message }, 400);
   if (/No organization membership|No membership in requested organization/.test(message)) return json({ detail: message }, 403);
-  if (/Authentication service|Database unavailable|Private storage|Private invoice storage|Private document|CA certificate|PostgreSQL mode requires/.test(message)) return json({ detail: message }, 503);
+  if (/Authentication service|Database unavailable|Private storage|Private invoice storage|Private document|CA certificate|PostgreSQL mode requires|OpenAI extraction is not configured for this environment/.test(message)) return json({ detail: message }, 503);
   if (/limit reached|retry limit/.test(message)) return json({ detail: message }, 429);
   if (/not found|Unknown demo supplier|Supplier not found|Assessment not found/.test(message)) return json({ detail: message }, 404);
   if (/already exists|Idempotency key already used/.test(message)) return json({ detail: message }, 409);
