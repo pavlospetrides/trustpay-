@@ -9,11 +9,28 @@ Plan and merge order: [follow-ups and PR readiness](plans/2026-11-26-followups-a
 - **Accounts (#32):** dashes are ignored like spaces in both stores, and `normalizeIban` checks the SWIFT registry length per country (a 24-character "CY" IBAN is rejected; CY is 28). Countries outside the table keep the generic 15–34 rule.
 - **Signals (#36):** weight-0 notes no longer show a "+0" badge.
 - **Parity:** the Python parity test now compares the HTTP status of every step. The one deliberate change is intake upload in SQLite mode (403 instead of FastAPI's 422 form error).
-- **Merge order:** #43, then #37, then #38, then this PR. #37 and #38 conflict with each other only in `docs/STATUS.md` and `handler.test.ts` (keep both). After #37 merges, five duplicate-review expectations in `disposable-db.test.ts` move from 403 to 409 in this PR. #37 adds `supabase/migrations/20261126000200_duplicate_reviews.sql`, which the hosted development project needs applied by hand.
+- **Merge order:** #43 and #37 merged on 26 November; then #38, then this PR. #38 conflicts with #37 only in `docs/STATUS.md` and `handler.test.ts` (keep both). This PR moves #37's five duplicate-review database expectations from 403 to 409. #37 added `supabase/migrations/20261126000200_duplicate_reviews.sql`, which the hosted development project needs applied by hand.
+
+## Offline OCR candidate (#42, merged in [#43](https://github.com/pavlospetrides/trustpay-/pull/43))
+
+PDF.js native text and local English/Greek OCR now feed text and word layout to the existing OpenAI universal analyzer when `TRUSTPAY_INVOICE_READER=ocr` is set. Vision remains the default and explicit external-document opt-in still applies. Actual OCR tests cover scanned PDFs, Greek/English text, rotation, blur, low confidence, and native/OCR conflict; the 14-document pack and two unseen generated invoices were measured. The final pack run matched 456/456 measured fields and 14/14 payable totals versus a fresh Vision 456/456. Earlier OCR runs exposed a missed alternative account and one model response that omitted 18 line items; evidence checks and a bounded multi-page retry were added. Estimated API token cost was $0.2394 OCR versus $0.2228 Vision. App, database, and Python-free Windows installation CI passed on commit `fd3b4e3` ([run 45802848853](https://github.com/pavlospetrides/trustpay-/actions/runs/45802848853)). See [evaluation and limits](invoice-ocr-evaluation.md). Hosted signed-in interface verification still awaits restoration of the Supabase egress quota. Human review is required before merging.
 
 ## Hosted development auth blocker — 26 November 2026
 
 The designated Supabase development project reported `exceed_egress_quota` during a signed-in Playwright rerun on 26 November. The test stopped at login before uploading an invoice. The project owner must restore service by resolving the quota or spend cap before hosted browser checks can resume. Earlier signed-in invoice review runs passed; local unit checks and live synthetic OpenAI extraction are separate from this hosted auth failure. This is unmerged branch evidence from `fix/invoice-extraction-fallback-20261125`.
+
+## Invoice-number matching (review item 6, branch `fix/invoice-number-matching`, not yet merged)
+
+One matching rule for invoice numbers, `invoiceNumberKey` in `fraud/risk.ts`: letter case, spacing, punctuation, invisible marks and leading zeros per digit group are ignored, so `AS-2026-0114`, `as 2026 114` and `AS2026114` are the same number, while `INV-1014` and `INV-114` stay different.
+- Exact copies keep the existing hard blocks (`DUPLICATE_PAID_INVOICE`, `DUPLICATE_OPEN_INVOICE`, +100).
+- A copy that matches only after normalisation gets `POSSIBLE_DUPLICATE_INVOICE` (+75, needs independent verification, kind `possible_duplicate`). It is not a hard block, because two genuinely different numbers can share a key.
+- **Duplicate review**: such a match is cleared only by an explicit decision. `POST /api/v1/invoices/{id}/duplicate-review` with `{"decision": "distinct" | "duplicate", "reason": "…"}` records the reviewer, reason and time against every undecided matching invoice or paid record (`GET` lists them). Owner, admin or analyst only, never the invoice's creator. Decisions are final and append-only. `duplicate` blocks the invoice. A general verification note does not clear the match.
+- Approval re-checks under the supplier lock, with one rule in both stores (`fraud/duplicate-review.ts`, replacing SQL `lower()`). An exact approved or paid copy blocks. A normalisation-only match without a `distinct` decision, or with `duplicate`, blocks. The person who confirmed `distinct` cannot approve.
+- A rejected copy is recognised by the same rule (`PREVIOUSLY_REJECTED_INVOICE`).
+- `SAME_AMOUNT_RECENT_INVOICE`: same supplier, exact same amount and a different number within 7 days of the invoice date. It is a **weight-0 note**: shown as evidence, listed last, never changes the score or the workflow. The changed-IBAN demo still scores 75.
+- One deliberate parity change: Python treated a number with a leading byte-order mark as new; it now matches. It is listed in `INTENDED_RISK_CHANGES` in the parity test.
+
+Migration `20261126000200_duplicate_reviews.sql` adds the append-only `duplicate_reviews` table (RLS read for members, no client writes). **The hosted development project needs it applied by hand** (never `db push`). Until then, only invoices with a normalisation-only match are affected (their approval and review fail); every other invoice, including the 75-point demo, is unchanged, because the table is read only when such a match exists.
 
 ## Verified-account trust and supplier identity checks (#32, merged in [#33](https://github.com/pavlospetrides/trustpay-/pull/33), `df6b51a`)
 

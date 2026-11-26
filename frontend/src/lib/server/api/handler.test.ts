@@ -7,6 +7,15 @@ import { authorizeTransition, type TransitionAction, type TransitionRow } from "
 const request = (path: string, method = "GET", body?: unknown) => new Request(`http://127.0.0.1:3000/api/${path}`, { method, headers: body ? { "Content-Type": "application/json" } : undefined, body: body ? JSON.stringify(body) : undefined });
 
 describe("single-server synthetic API", () => {
+  it("reports the selected OCR reader in health", async () => {
+    const previous = process.env.TRUSTPAY_INVOICE_READER;
+    process.env.TRUSTPAY_INVOICE_READER = "ocr";
+    try {
+      const context = { mode: "postgres", aiEnabled: true, pg: { health: async () => {} } } as unknown as ApiContext;
+      const response = await handleApiRequest(request("health"), ["health"], context);
+      expect((await response.json()).invoice_reader).toBe("openai_ocr_text");
+    } finally { if (previous === undefined) delete process.env.TRUSTPAY_INVOICE_READER; else process.env.TRUSTPAY_INVOICE_READER = previous; }
+  });
   it("serves the 75-score verification and approval workflow with separate audit events", async () => {
     const db = new DemoStore(":memory:");
     const context = { mode: "sqlite" as const, demo: db };
@@ -22,6 +31,16 @@ describe("single-server synthetic API", () => {
       expect((await approved.json()).status).toBe("approved");
       const audit = await handleApiRequest(request("v1/audit"), ["v1", "audit"], context);
       expect((await audit.json()).filter((event: { invoice_id: string }) => event.invoice_id === "INV-2409").map((event: { action: string }) => event.action)).toEqual(["APPROVE", "VERIFY", "ASSESSED"]);
+    } finally { db.close(); }
+  });
+  it("serves the duplicate-review route and validates its input", async () => {
+    const db = new DemoStore(":memory:");
+    const context = { mode: "sqlite" as const, demo: db };
+    const call = (path: string, method = "GET", body?: unknown) => handleApiRequest(request(`v1/${path}`, method, body), ["v1", ...path.split("/")], context);
+    try {
+      expect((await call("invoices/INV-2409/duplicate-review", "POST", { decision: "distinct", reason: "Nothing to review here at all" })).status).toBe(409);
+      expect((await call("invoices/INV-2409/duplicate-review", "POST", { decision: "maybe", reason: "Not a valid decision value" })).status).toBe(422);
+      expect(await (await call("invoices/INV-2409/duplicate-review")).json()).toEqual({ invoice_id: "INV-2409", invoice_number: "AS-2026-114", matches: [] });
     } finally { db.close(); }
   });
   it("rejects NUL characters in evidence before they reach storage", async () => {
@@ -107,6 +126,11 @@ describe("single-server synthetic API", () => {
       [message("analyst", "hold", { status: "blocked" }), 409],
       [message("analyst", "hold", { status: "rejected" }), 409],
       ["Invoice cannot be approved because another copy is already approved", 409],
+      ["Invoice cannot be approved because this supplier invoice number is already paid", 409],
+      ["Invoice cannot be approved: it may duplicate invoice X. An authorized reviewer must record a duplicate review confirming they are different invoices", 409],
+      ["Invoice cannot be reviewed for duplicates in its current state", 409],
+      ["Invoice creator cannot review their own invoice for duplicates", 403],
+      ["Maker-checker separation failed: the person who confirmed the invoices are distinct cannot approve", 403],
     ];
     for (const [detail, status] of cases) {
       const context = { mode: "postgres", pg: { membershipRows: async () => [{ organizationId: "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa", role: "approver" }], transition: async () => { throw new Error(detail); } }, verifyToken: async () => user } as unknown as ApiContext;

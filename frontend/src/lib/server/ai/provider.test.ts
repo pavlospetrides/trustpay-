@@ -2,6 +2,31 @@ import { describe, expect, it } from "vitest";
 import { OpenAIInvoiceProvider, ProviderUnavailable } from "./provider";
 
 describe("OpenAI invoice adapter boundary", () => {
+  it("rejects oversized OCR evidence before silently dropping later pages", async () => {
+    let called = false;
+    const provider = new OpenAIInvoiceProvider("test-model", { responses: { parse: async () => { called = true; throw new Error("Should not call provider"); } } });
+    const pages = Array.from({ length: 10 }, (_, index) => ({ number: index + 1, method: "ocr" as const, text: "A".repeat(15_000), words: [], confidence: 90, width: 800, height: 1100, warnings: [] }));
+    await expect(provider.extractTextDocument({ pages, text: "", quality: "sufficient", warnings: [] })).rejects.toThrow("OCR evidence exceeds text analysis limit");
+    expect(called).toBe(false);
+  });
+  it("structures OCR text and layout without attaching document bytes", async () => {
+    let request: Record<string, unknown> = {};
+    const empty = { value: null, source_value: null, supporting_text: null, page: null, uncertain: false };
+    const fields = (keys: string[]) => Object.fromEntries(keys.map((key) => [key, empty]));
+    const document = { document_type: "invoice", languages: ["en"], multiple_invoices: false,
+      document: fields(["invoice_number", "invoice_date", "due_date", "purchase_order_reference", "payment_reference", "original_invoice_reference"]),
+      supplier: fields(["legal_name", "trading_name", "registration_number", "vat_number", "address", "country", "email", "telephone"]),
+      customer: fields(["legal_name", "trading_name", "registration_number", "vat_number", "address", "country", "email", "telephone", "customer_reference"]),
+      accounts: [], financial: fields(["currency", "subtotal", "discounts", "net_amount", "vat_amount", "additional_charges", "shipping", "gross_total", "amount_paid", "outstanding_balance"]), vat_breakdown: [], line_items: [], warnings: [] };
+    const provider = new OpenAIInvoiceProvider("test-model", { responses: { parse: async (input) => { request = input; return { output_parsed: document }; } } });
+    await provider.extractTextDocument({ pages: [{ number: 1, method: "ocr", text: "Invoice Number: TEST-1", words: [{ text: "TEST-1", confidence: 88, box: { x: 10, y: 20, width: 40, height: 12 } }], confidence: 88, width: 800, height: 1100, warnings: [] }], text: "Invoice Number: TEST-1", quality: "sufficient", warnings: [] });
+    const serialized = JSON.stringify(request);
+    expect(serialized).toContain("TEST-1");
+    expect(serialized).toContain('\\"x\\":10');
+    expect(serialized).not.toContain("input_file");
+    expect(serialized).not.toContain("input_image");
+    expect(request.store).toBe(false);
+  });
   it("uses complete PDF visual input plus embedded text with strict structured evidence", async () => {
     let request: Record<string, unknown> = {};
     const empty = { value: null, source_value: null, supporting_text: null, page: null, uncertain: false };
