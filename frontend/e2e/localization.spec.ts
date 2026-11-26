@@ -80,6 +80,8 @@ for (const [locale, languageName, label, dashboard] of [
         await expect(selected).toHaveText(languageName);
         await expect(selected.locator(".language-check")).toBeVisible();
         await expect(menu).toHaveCSS("direction", rtl ? "rtl" : "ltr");
+        // Radix measures the menu off-screen first, then places it; wait for the placed position.
+        await expect.poll(async () => (await menu.boundingBox())?.y ?? -1).toBeGreaterThanOrEqual(11);
         const box = (await menu.boundingBox())!;
         expect(box.x).toBeGreaterThanOrEqual(11);
         expect(box.x + box.width).toBeLessThanOrEqual(width - 11);
