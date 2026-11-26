@@ -2,11 +2,11 @@
 import { sourceText } from "@/lib/i18n/core";
 import { useI18n } from "@/lib/i18n/provider";
 import { LanguageSelector } from "@/components/language-selector";
+import { ThemeToggle } from "@/components/theme-toggle";
 import Link from "next/link";
 import { usePathname, useRouter } from "next/navigation";
 import { useEffect, useRef, useState, type ReactNode } from "react";
-import { ArrowUpRight, ChartNoAxesCombined, LayoutDashboard, ListChecks, Moon, Plus, ScrollText, Settings2, ShieldCheck, Sun, UsersRound, PlugZap } from "lucide-react";
-import { useTheme } from "@/hooks/use-theme";
+import { ArrowUpRight, ChartNoAxesCombined, LayoutDashboard, ListChecks, Plus, ScrollText, Settings2, ShieldCheck, UsersRound, PlugZap } from "lucide-react";
 import { useApi } from "@/hooks/use-api";
 import { api } from "@/lib/api";
 import { authConfigured, organizationStorageKey, supabaseBrowser } from "@/lib/supabase";
@@ -51,11 +51,6 @@ function CrystalNav({ path, mobile = false }: { path: string; mobile?: boolean }
     {shown.map(({ href, label, icon: Icon }) => <Link key={href} href={href} aria-current={active(path, href) ? "page" : undefined}><Icon size={19} aria-hidden="true"/><span>{t(label)}</span></Link>)}
     {mobile && <Link href="/app/settings" aria-current={links.slice(4).some(link => active(path, link.href)) ? "page" : undefined}><Settings2 size={19} aria-hidden="true"/><span>{t("more")}</span></Link>}
   </nav>;
-}
-export function ThemeToggle() {
-  const { t } = useI18n();
-  const { theme, setTheme } = useTheme();
-  return <button type="button" className="theme-toggle" aria-label={theme === "light" ? t("switch-to-dark-theme") : t("switch-to-light-theme")} onClick={() => setTheme(theme === "light" ? "dark" : "light")}>{theme === "light" ? <Moon size={18} aria-hidden="true"/> : <Sun size={18} aria-hidden="true"/>}</button>;
 }
 function ConnectionStatus() {
   const { t, connectionLabel } = useI18n();

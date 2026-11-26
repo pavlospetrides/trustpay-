@@ -109,6 +109,8 @@ test("the language menu supports keyboard selection and dismisses without steali
   const menu = page.getByRole("menu");
   await page.keyboard.press("Tab");
   await page.keyboard.press("Tab");
+  await expect(page.locator(".landing-header .theme-toggle")).toBeFocused();
+  await page.keyboard.press("Tab");
   await expect(trigger).toBeFocused();
   await page.keyboard.press("Enter");
   await expect(menu.getByRole("menuitemradio", { name: "English" })).toBeFocused();

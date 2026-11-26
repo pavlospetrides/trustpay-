@@ -815,5 +815,6 @@
   "api.duplicate-decision-blocked": "אי אפשר לאשר את החשבונית כי בבדיקה נקבע שהיא כפילות של {p0}",
   "api.duplicate-separation": "מי שאישר שהחשבוניות שונות אינו יכול גם לאשר את החשבונית",
   "api.duplicate-match-record": "״{p0}״ ({p1})",
-  "intake.ocr-account-candidate": "חשבון שזוהה ב־OCR. אמתו את הפרטים מול המסמך המקורי."
+  "intake.ocr-account-candidate": "חשבון שזוהה ב־OCR. אמתו את הפרטים מול המסמך המקורי.",
+  "sample-workflow-preview": "דוגמה לתהליך בדיקה"
 }

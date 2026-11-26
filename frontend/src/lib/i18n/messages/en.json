@@ -815,5 +815,6 @@
   "api.duplicate-decision-blocked": "Invoice cannot be approved: a reviewer confirmed it duplicates {p0}",
   "api.duplicate-separation": "Maker-checker separation failed: the person who confirmed the invoices are distinct cannot approve",
   "api.duplicate-match-record": "\"{p0}\" ({p1})",
-  "intake.ocr-account-candidate": "OCR account candidate; verify against original"
+  "intake.ocr-account-candidate": "OCR account candidate; verify against original",
+  "sample-workflow-preview": "SAMPLE WORKFLOW PREVIEW"
 }
