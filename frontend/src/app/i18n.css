@@ -136,7 +136,8 @@
   .public-top-actions > span { display: none; }
   .landing-header { column-gap: 8px; row-gap: 12px; flex-wrap: wrap; }
   .landing-header .brand { padding-inline: 0; }
-  .public-top-actions { flex: none; }
+  .public-top-actions { flex: none; gap: 8px; margin-inline-start: auto; }
+  .public-top-actions .theme-toggle { inline-size: 44px; block-size: 44px; }
   .crystal-topbar .top-actions .connection-pill { display: none; }
   .language-selector { min-inline-size: 7rem; padding-inline: 8px; }
   .theme-options { grid-template-columns: repeat(auto-fit, minmax(min(100%, 100px), 1fr)); }
