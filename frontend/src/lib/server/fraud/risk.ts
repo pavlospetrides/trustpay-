@@ -92,6 +92,8 @@ export function invoiceNumberKey(value: string): string {
     .map((part) => part.replace(/\d+/g, (digits) => digits.replace(/^0+(?=\d)/, "")))
     .join("");
 }
+/** The exact comparison the hard duplicate blocks use: case-folded, surrounding whitespace removed. */
+export const exactInvoiceNumber = (value: string) => casefold(pyStrip(value));
 /** True when two invoice numbers are the same invoice under the matching rule above (exact match when there is no key). */
 export function sameInvoiceNumber(left: string, right: string): boolean {
   const key = invoiceNumberKey(left);
@@ -152,7 +154,7 @@ export function assessPayment(input: RiskInput): Assessment {
     const nearOpen = nearPaid !== undefined || key === "" ? undefined : openNumbers.find((value) => invoiceNumberKey(value) === key);
     if (nearPaid !== undefined || nearOpen !== undefined) {
       const match = pyStrip((nearPaid ?? nearOpen)!);
-      signals.push({ code: "POSSIBLE_DUPLICATE_INVOICE", weight: 75, explanation: `Invoice number "${pyStrip(invoiceNumber)}" matches "${match}" from this supplier once letter case, spacing, punctuation and leading zeros are ignored, and that invoice is ${nearPaid !== undefined ? "already paid" : "already open or approved"}. It is probably the same invoice: confirm with the supplier before approval. Only one copy can be approved.`, severity: "critical" });
+      signals.push({ code: "POSSIBLE_DUPLICATE_INVOICE", weight: 75, explanation: `Invoice number "${pyStrip(invoiceNumber)}" matches "${match}" from this supplier once letter case, spacing, punctuation and leading zeros are ignored, and that invoice is ${nearPaid !== undefined ? "already paid" : "already open or approved"}. It is probably the same invoice: before approval, an authorized reviewer must record a duplicate review confirming whether they are different invoices.`, severity: "critical" });
     } else if (rejected.has(casefold(pyStrip(invoiceNumber))) || (key !== "" && [...rejected].some((value) => invoiceNumberKey(value) === key))) {
       signals.push({ code: "PREVIOUSLY_REJECTED_INVOICE", weight: 40, explanation: "A copy of this supplier invoice number was rejected before. Independently verify this resubmission before approval.", severity: "review" });
     }

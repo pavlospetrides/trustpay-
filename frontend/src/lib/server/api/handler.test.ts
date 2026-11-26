@@ -23,6 +23,16 @@ describe("single-server synthetic API", () => {
       expect((await audit.json()).filter((event: { invoice_id: string }) => event.invoice_id === "INV-2409").map((event: { action: string }) => event.action)).toEqual(["APPROVE", "VERIFY", "ASSESSED"]);
     } finally { db.close(); }
   });
+  it("serves the duplicate-review route and validates its input", async () => {
+    const db = new DemoStore(":memory:");
+    const context = { mode: "sqlite" as const, demo: db };
+    const call = (path: string, method = "GET", body?: unknown) => handleApiRequest(request(`v1/${path}`, method, body), ["v1", ...path.split("/")], context);
+    try {
+      expect((await call("invoices/INV-2409/duplicate-review", "POST", { decision: "distinct", reason: "Nothing to review here at all" })).status).toBe(409);
+      expect((await call("invoices/INV-2409/duplicate-review", "POST", { decision: "maybe", reason: "Not a valid decision value" })).status).toBe(422);
+      expect(await (await call("invoices/INV-2409/duplicate-review")).json()).toEqual({ invoice_id: "INV-2409", invoice_number: "AS-2026-114", matches: [] });
+    } finally { db.close(); }
+  });
   it("rejects NUL characters in evidence before they reach storage", async () => {
     const db = new DemoStore(":memory:");
     try {

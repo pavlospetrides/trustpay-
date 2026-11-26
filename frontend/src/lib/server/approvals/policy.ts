@@ -31,3 +31,10 @@ export function authorizeTransition(principal: Principal, action: TransitionActi
 
 /** Where a released hold goes: a verified or low-risk invoice is ready again; anything else goes back to review. */
 export const releasedStatus = (row: TransitionRow): "ready" | "needs_review" => row.verifiedBy || row.score < 40 ? "ready" : "needs_review";
+
+/** Who may record a duplicate review (distinct or duplicate) for a possible duplicate, and when. */
+export function authorizeDuplicateReview(principal: Principal, row: TransitionRow): void {
+  if (!["owner", "admin", "analyst"].includes(principal.role)) throw new Error("Role is not authorized for this action");
+  if (["approved", "rejected", "blocked"].includes(row.status)) throw new Error("Invoice cannot be reviewed for duplicates in its current state");
+  if (row.createdBy === principal.userId) throw new Error("Invoice creator cannot review their own invoice for duplicates");
+}

@@ -127,17 +127,58 @@ describe("synthetic local demo persistence", () => {
     expect(() => db.transition("OLD-B", "approve", "")).toThrow("another copy is already approved");
   });
 
-  it("catches reformatted copies of an invoice and refuses a second approval", () => {
-    const db = store();
-    const account = accountOf(db, "INV-2412");
-    expect(db.transition("INV-2412", "approve", "").status).toBe("approved");
-    const copy = db.createAssessment({ id: "REFORMAT-1", supplier_id: "SUP-004", invoice_number: "pt 891", amount_cents: 125_000, creditor_account: account, invoice_date: "2027-01-15" });
-    expect([copy.risk, copy.status, copy.kind, copy.signals[0].code]).toEqual([75, "needs_review", "possible_duplicate", "POSSIBLE_DUPLICATE_INVOICE"]);
-    // Not a hard block: a verifier can record evidence, but approval still refuses a second approved copy.
-    expect(db.transition("REFORMAT-1", "verify", "Supplier confirmed by phone it is the same invoice").status).toBe("ready");
-    expect(() => db.transition("REFORMAT-1", "approve", "")).toThrow("another copy is already approved");
-    const paidCopy = db.createAssessment({ id: "REFORMAT-2", supplier_id: "SUP-004", invoice_number: "pt hist 0001", amount_cents: 125_000, creditor_account: account, invoice_date: "2027-03-15" });
-    expect(paidCopy.signals[0].explanation).toContain("already paid");
+  describe("duplicate review for normalisation-only matches", () => {
+    // INV-2412 (Palm Tree, "PT-00891", score 0) is approved first; PT-HIST-001 is in paid history.
+    const setup = () => {
+      const db = store();
+      const account = accountOf(db, "INV-2412");
+      expect(db.transition("INV-2412", "approve", "").status).toBe("approved");
+      const assess = (id: string, number: string, date = "2027-01-15") => db.createAssessment({ id, supplier_id: "SUP-004", invoice_number: number, amount_cents: 125_000, creditor_account: account, invoice_date: date });
+      const verifyThenApprove = (id: string) => { db.transition(id, "verify", "Supplier callback on file, synthetic"); return () => db.transition(id, "approve", ""); };
+      return { db, assess, verifyThenApprove };
+    };
+
+    it("keeps an exact duplicate hard-blocked", () => {
+      const { db, assess } = setup();
+      expect([assess("EXACT-1", "pt-00891").status, assess("EXACT-2", "PT-HIST-001", "2027-02-15").status]).toEqual(["blocked", "blocked"]);
+      expect(() => db.transition("EXACT-1", "verify", "Supplier callback on file, synthetic")).toThrow("cannot be verified");
+      expect(() => db.reviewDuplicate("EXACT-1", "distinct", "Supplier says these are different")).toThrow("current state");
+    });
+
+    it("blocks a normalisation-only match against an approved invoice until reviewed; a general verification does not clear it", () => {
+      const { db, assess, verifyThenApprove } = setup();
+      const copy = assess("NEAR-1", "pt 891");
+      expect([copy.risk, copy.status, copy.kind]).toEqual([75, "needs_review", "possible_duplicate"]);
+      expect(verifyThenApprove("NEAR-1")).toThrow('may duplicate "PT-00891" (approved)');
+      expect(db.duplicateReview("NEAR-1").matches).toEqual([{ kind: "invoice", id: "INV-2412", invoice_number: "PT-00891", status: "approved", decision: null, decided_by: null, reason: null, decided_at: null }]);
+      expect(db.reviewDuplicate("NEAR-1", "duplicate", "Supplier confirms it is the same invoice re-sent").status).toBe("blocked");
+      expect(() => db.transition("NEAR-1", "approve", "")).toThrow();
+      expect(db.audit()[0]).toMatchObject({ action: "DUPLICATE_REVIEW", title: "Possible duplicate confirmed — invoice blocked" });
+    });
+
+    it("blocks a normalisation-only match against paid history until reviewed", () => {
+      const { assess, verifyThenApprove } = setup();
+      const copy = assess("NEAR-PAID", "pt hist 0001");
+      expect(copy.signals[0].explanation).toContain("already paid");
+      expect(verifyThenApprove("NEAR-PAID")).toThrow('may duplicate "PT-HIST-001" (paid)');
+    });
+
+    it("lets a pair confirmed as genuinely different invoices through normal approval, once", () => {
+      const { db, assess, verifyThenApprove } = setup();
+      assess("DISTINCT-1", "PT 891");
+      expect(() => db.reviewDuplicate("DISTINCT-1", "distinct", "short")).toThrow("at least 12");
+      const reviewed = db.reviewDuplicate("DISTINCT-1", "distinct", "Supplier confirmed by phone: separate delivery, different invoice");
+      expect(reviewed.status).toBe("needs_review"); // the review clears the duplicate question, not the verification
+      expect(db.duplicateReview("DISTINCT-1").matches[0]).toMatchObject({ decision: "distinct", decided_by: "risk.analyst@demo.local", reason: "Supplier confirmed by phone: separate delivery, different invoice" });
+      expect(() => db.reviewDuplicate("DISTINCT-1", "duplicate", "Changed my mind about this")).toThrow("already been reviewed");
+      expect(verifyThenApprove("DISTINCT-1")().status).toBe("approved");
+      expect(() => db.reviewDuplicate("INV-2412", "distinct", "Nothing left to review here")).toThrow("current state");
+    });
+
+    it("refuses a review when there is no normalisation-only match", () => {
+      const { db } = setup();
+      expect(() => db.reviewDuplicate("INV-2409", "distinct", "Nothing to review on this invoice")).toThrow("No possible duplicate");
+    });
   });
 
   it("notes a same-amount invoice from the same supplier within a week without changing the score", () => {
