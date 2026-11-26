@@ -2,6 +2,15 @@
 
 **Start here:** [handoff for 26 November onward](handoff-2026-11-25.md) lists what merged on 25 November, the owner actions still open and the work order.
 
+## Follow-ups before the redesign — 26 November 2026
+
+Plan and merge order: [follow-ups and PR readiness](plans/2026-11-26-followups-and-pr-readiness.md).
+- **Status codes (#30 b):** in PostgreSQL mode, "you may not do this" stays 403 (role, maker-checker, self-verification) and "not in this state" is now 409 (not ready, needs verification, already approved or paid, final). SQLite mode keeps Python's 409 for both.
+- **Accounts (#32):** dashes are ignored like spaces in both stores, and `normalizeIban` checks the SWIFT registry length per country (a 24-character "CY" IBAN is rejected; CY is 28). Countries outside the table keep the generic 15–34 rule.
+- **Signals (#36):** weight-0 notes no longer show a "+0" badge.
+- **Parity:** the Python parity test now compares the HTTP status of every step. The one deliberate change is intake upload in SQLite mode (403 instead of FastAPI's 422 form error).
+- **Merge order:** #43, then #37, then #38, then this PR. #37 and #38 conflict with each other only in `docs/STATUS.md` and `handler.test.ts` (keep both). After #37 merges, five duplicate-review expectations in `disposable-db.test.ts` move from 403 to 409 in this PR. #37 adds `supabase/migrations/20261126000200_duplicate_reviews.sql`, which the hosted development project needs applied by hand.
+
 ## Hosted development auth blocker — 26 November 2026
 
 The designated Supabase development project reported `exceed_egress_quota` during a signed-in Playwright rerun on 26 November. The test stopped at login before uploading an invoice. The project owner must restore service by resolving the quota or spend cap before hosted browser checks can resume. Earlier signed-in invoice review runs passed; local unit checks and live synthetic OpenAI extraction are separate from this hosted auth failure. This is unmerged branch evidence from `fix/invoice-extraction-fallback-20261125`.
