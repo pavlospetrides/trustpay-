@@ -23,7 +23,7 @@ export async function extractInvoice(data: Buffer, contentType: string, provider
         if (textMode) {
           try {
             detailed = await provider.extractTextDocument!(evidence!);
-            if (evidence!.pages.length > 1 && detailed.document.line_items.length < 2) {
+            if (evidence!.pages.length > 1 && detailed.document.line_items.length === 0) {
               const retry = await provider.extractTextDocument!(evidence!);
               const usage = { input_tokens: detailed.usage.input_tokens + retry.usage.input_tokens, output_tokens: detailed.usage.output_tokens + retry.usage.output_tokens };
               detailed = { document: retry.document.line_items.length > detailed.document.line_items.length ? retry.document : detailed.document, usage };
@@ -41,14 +41,16 @@ export async function extractInvoice(data: Buffer, contentType: string, provider
         if (fields.iban) { try { fields.iban = normalizeIban(fields.iban); } catch { fields.iban = null; } }
         const findings = validateUniversalDocument(detailed.document);
         const uncertain = new Set<string>(requiredFields.filter((key) => !fields[key]));
-        if (textMode && evidence && evidence.pages.length > 1 && detailed.document.line_items.length < 2) findings.push({ code: "POSSIBLE_MISSING_LINE_ITEMS", severity: "warning", field: "line_items", detail: "Few line items were extracted from a multi-page document after a bounded retry. Review every page and table row." });
+        if (textMode && evidence && evidence.pages.length > 1 && detailed.document.line_items.length === 0) findings.push({ code: "POSSIBLE_MISSING_LINE_ITEMS", severity: "warning", field: "line_items", detail: "No line items were extracted from a multi-page document after a bounded retry. Review every page and table row." });
         for (const [key, field] of Object.entries({ supplier_name: detailed.document.supplier.legal_name, invoice_number: detailed.document.document.invoice_number, invoice_date: detailed.document.document.invoice_date, total_amount: detailed.document.financial.outstanding_balance.value ? detailed.document.financial.outstanding_balance : detailed.document.financial.gross_total, currency: detailed.document.financial.currency })) if (field.uncertain) uncertain.add(key);
         if (detailed.document.accounts.length !== 1 || detailed.document.accounts[0].iban.uncertain) uncertain.add("iban");
         const printedIbans = validIbansInText([document.text, evidence?.text ?? ""].join("\n"));
         const modeledIbans = new Set(detailed.document.accounts.flatMap((account) => {
           try { return account.iban.value ? [normalizeIban(account.iban.value)] : []; } catch { return []; }
         }));
-        if ([...printedIbans].some((iban) => !modeledIbans.has(iban))) {
+        // In OCR text mode an omitted OCR account is added below with its own warning; do not report it twice.
+        const ocrAccounts = textMode && evidence ? new Set(evidence.pages.flatMap((page) => [...validIbansInText(page.text)])) : new Set<string>();
+        if ([...printedIbans].some((iban) => !modeledIbans.has(iban) && !ocrAccounts.has(iban))) {
           fields.iban = null;
           uncertain.add("iban");
           findings.push({ code: "ADDITIONAL_IBAN_IN_TEXT", severity: "warning", field: "accounts", detail: "The PDF text contains another valid IBAN. Check every payment destination against the original document." });

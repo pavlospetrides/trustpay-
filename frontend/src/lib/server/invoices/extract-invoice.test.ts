@@ -18,13 +18,18 @@ describe("invoice extraction fallback", () => {
       supplier: fields(["legal_name", "trading_name", "registration_number", "vat_number", "address", "country", "email", "telephone"]),
       customer: fields(["legal_name", "trading_name", "registration_number", "vat_number", "address", "country", "email", "telephone", "customer_reference"]),
       accounts: [], financial: fields(["currency", "subtotal", "discounts", "net_amount", "vat_amount", "additional_charges", "shipping", "gross_total", "amount_paid", "outstanding_balance"]), vat_breakdown: [], line_items: [], warnings: [] });
-    const read = vi.spyOn(ocrReader, "readInvoiceEvidence").mockResolvedValueOnce({ text: "Page 1 Page 2", quality: "sufficient", warnings: [], pages: [1, 2].map((number) => ({ number, method: "native_pdf_text", text: "Invoice row", words: [], confidence: 100, width: 600, height: 800, warnings: [] })) });
+    const read = vi.spyOn(ocrReader, "readInvoiceEvidence").mockResolvedValue({ text: "Page 1 Page 2", quality: "sufficient", warnings: [], pages: [1, 2].map((number) => ({ number, method: "native_pdf_text", text: "Invoice row", words: [], confidence: 100, width: 600, height: 800, warnings: [] })) });
     let calls = 0;
     try {
       const result = await extractInvoice(pdf, "application/pdf", { extract: async () => { throw new Error("unused"); }, extractTextDocument: async () => { calls++; return { document: { ...document, line_items: calls === 1 ? [] : [line, line] }, usage: { input_tokens: 10, output_tokens: 20 } }; } }, { reader: "ocr" });
       expect(calls).toBe(2);
       expect(result.document?.line_items).toHaveLength(2);
       expect(result.usage).toEqual({ input_tokens: 20, output_tokens: 40 });
+      // One real line item on a multi-page invoice (for example a terms page) is not retried or flagged.
+      calls = 0;
+      const single = await extractInvoice(pdf, "application/pdf", { extract: async () => { throw new Error("unused"); }, extractTextDocument: async () => { calls++; return { document: { ...document, line_items: [line] }, usage: { input_tokens: 10, output_tokens: 20 } }; } }, { reader: "ocr" });
+      expect(calls).toBe(1);
+      expect(single.findings?.map((finding) => finding.code)).not.toContain("POSSIBLE_MISSING_LINE_ITEMS");
     } finally { read.mockRestore(); }
   });
   it("uses configured Vision when OCR text analysis is unavailable", async () => {
@@ -104,5 +109,7 @@ describe("invoice extraction fallback", () => {
     expect(ocr.document?.accounts).toHaveLength(2);
     expect(ocr.fields.iban).toBeNull();
     expect(ocr.document?.accounts.some((account) => account.iban.uncertain)).toBe(true);
+    expect(ocr.findings?.map((finding) => finding.code)).toContain("OCR_ACCOUNT_ADDED_FOR_REVIEW");
+    expect(ocr.findings?.map((finding) => finding.code)).not.toContain("ADDITIONAL_IBAN_IN_TEXT");
   });
 });
