@@ -47,7 +47,9 @@ function errorResponse(error: unknown, mode: ApiContext["mode"]): Response {
   if (/limit reached|retry limit/.test(message)) return json({ detail: message }, 429);
   if (/not found|Unknown demo supplier|Supplier not found|Assessment not found/.test(message)) return json({ detail: message }, 404);
   if (/already exists|Idempotency key already used/.test(message)) return json({ detail: message }, 409);
-  if (/Role|Only organization owners|cannot independently|Maker-checker|needs independent verification|requires independent verification|already been recorded|not ready|cannot be verified|cannot be placed|cannot be approved|cannot be released|are final|unavailable in PostgreSQL mode|requires PostgreSQL mode/.test(message)) return json({ detail: message }, mode === "sqlite" ? 409 : 403);
+  // SQLite mode keeps Python's 409 for both groups (parity fixtures); PostgreSQL separates "not allowed for you" (403) from "not allowed in this state" (409).
+  if (/Role|Only organization owners|cannot independently|Maker-checker|unavailable in PostgreSQL mode|requires PostgreSQL mode/.test(message)) return json({ detail: message }, mode === "sqlite" ? 409 : 403);
+  if (/needs independent verification|requires independent verification|already been recorded|not ready|cannot be verified|cannot be placed|cannot be approved|cannot be released|are final/.test(message)) return json({ detail: message }, 409);
   if (/Invalid|valid|must|Only|Select|Review|cannot|is required|are required|evidence reference|already been reviewed|Unknown assessment|could not be read|unsupported|exceeds|outside|unknown|malformed/.test(message)) return json({ detail: message }, 422);
   console.error(`TrustPay API error: ${error instanceof Error ? error.constructor.name : "UnknownError"}`);
   return json({ detail: "Internal server error" }, 500);

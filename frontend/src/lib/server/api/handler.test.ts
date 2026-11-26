@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 import { DemoStore } from "../database/demo-store";
 import { handleApiRequest } from "./handler";
 import type { ApiContext } from "./handler";
+import { authorizeTransition, type TransitionAction, type TransitionRow } from "../approvals/policy";
 
 const request = (path: string, method = "GET", body?: unknown) => new Request(`http://127.0.0.1:3000/api/${path}`, { method, headers: body ? { "Content-Type": "application/json" } : undefined, body: body ? JSON.stringify(body) : undefined });
 
@@ -91,5 +92,30 @@ describe("single-server synthetic API", () => {
     const path = ["v1", "invoice-intakes", "bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb", "extract"];
     const response = await handleApiRequest(new Request(`http://localhost/api/${path.join("/")}`, { method: "POST", headers: { Authorization: "Bearer synthetic-token", "X-Organization-Id": "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa" } }), path, context);
     expect([response.status, (await response.json()).detail]).toEqual([503, "OpenAI extraction is not configured for this environment"]);
+  });
+  it("answers 403 for who may act and 409 for invoice state in PostgreSQL mode, and 409 for both in SQLite mode", async () => {
+    const user = "11111111-1111-4111-8111-111111111111";
+    const message = (role: string, action: TransitionAction, row: Partial<TransitionRow>) => { try { authorizeTransition({ userId: user, organizationId: "org", role }, action, { status: "ready", score: 0, verifiedBy: null, createdBy: null, ...row }); } catch (error) { return (error as Error).message; } throw new Error("expected a refusal"); };
+    const cases: Array<[string, number]> = [
+      [message("analyst", "approve", {}), 403],
+      [message("analyst", "verify", { status: "needs_review", createdBy: user }), 403],
+      [message("approver", "approve", { createdBy: user }), 403],
+      [message("approver", "approve", { status: "needs_review" }), 409],
+      [message("approver", "approve", { score: 75 }), 409],
+      [message("analyst", "verify", { status: "approved" }), 409],
+      [message("analyst", "release", {}), 409],
+      [message("analyst", "hold", { status: "blocked" }), 409],
+      [message("analyst", "hold", { status: "rejected" }), 409],
+      ["Invoice cannot be approved because another copy is already approved", 409],
+    ];
+    for (const [detail, status] of cases) {
+      const context = { mode: "postgres", pg: { membershipRows: async () => [{ organizationId: "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa", role: "approver" }], transition: async () => { throw new Error(detail); } }, verifyToken: async () => user } as unknown as ApiContext;
+      const path = ["v1", "invoices", "INV-1", "approve"];
+      const response = await handleApiRequest(new Request(`http://localhost/api/${path.join("/")}`, { method: "POST", headers: { Authorization: "Bearer synthetic-token", "X-Organization-Id": "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa" } }), path, context);
+      expect([detail, response.status]).toEqual([detail, status]);
+    }
+    const demo = new DemoStore(":memory:");
+    const role = await handleApiRequest(request("v1/invoices/INV-2409/approve", "POST"), ["v1", "invoices", "INV-2409", "approve"], { mode: "sqlite", demo });
+    expect(role.status).toBe(409);
   });
 });

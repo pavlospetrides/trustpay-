@@ -12,6 +12,19 @@ describe("Python encrypted data compatibility", () => {
     expect(() => normalizeIban("GB82 WEST 1234 5698 7654 33")).toThrow();
   });
 
+  it("ignores dashes like spaces and checks the registry length per country", () => {
+    expect(normalizeIban("GB82-WEST-1234-5698-7654-32")).toBe(iban);
+    const protector = new AccountProtector(Buffer.alloc(32, "a"), Buffer.alloc(32, "b"));
+    expect(protector.protect("gb82-west 1234-5698 7654-32").fingerprint).toBe(protector.protect(iban).fingerprint);
+    // A checksum-valid 24-character IBAN that claims to be Cypriot (CY is 28): the length rule, not the checksum, rejects it.
+    const withCheckDigits = (country: string, bban: string) => { let r = 0; for (const c of `${bban}${country}00`) for (const d of /[A-Z]/.test(c) ? String(c.charCodeAt(0) - 55) : c) r = (r * 10 + Number(d)) % 97; return `${country}${String(98 - r).padStart(2, "0")}${bban}`; };
+    const short = withCheckDigits("CY", "00200128000000120052");
+    expect(() => normalizeIban(short)).toThrow("A CY IBAN must have 28 characters");
+    expect(normalizeIban("CY17 0020 0128 0000 0012 0052 7600")).toBe("CY17002001280000001200527600");
+    // Countries outside the table keep the generic rule.
+    expect(() => normalizeIban("ZZ00")).toThrow("A valid IBAN is required");
+  });
+
   it("reads Python AES-GCM account ciphertext and preserves HMAC fingerprint", () => {
     const key = Buffer.alloc(32, "a");
     // Produced by Python cryptography AESGCM with a fixed synthetic nonce and key.

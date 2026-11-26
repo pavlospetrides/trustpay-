@@ -64,7 +64,8 @@ export function identityMismatches(invoice: IdentityValues, supplier: IdentityVa
 const PY_SPACE = "\\t\\n\\v\\f\\r\\x1c-\\x20\\x85\\xa0\\u1680\\u2000-\\u200a\\u2028\\u2029\\u202f\\u205f\\u3000";
 const PY_EDGES = new RegExp(`^[${PY_SPACE}]+|[${PY_SPACE}]+$`, "g"), PY_SPACES = new RegExp(`[${PY_SPACE}]+`, "g");
 const pyStrip = (value: string) => value.replace(PY_EDGES, "");
-export const normalizedAccount = (value: string) => value.toUpperCase().replace(PY_SPACES, "");
+// Dashes are ignored like spaces, matching normalizeIban, so "CY17-0020…" and "CY170020…" are one account in both stores.
+export const normalizedAccount = (value: string) => value.toUpperCase().replace(PY_SPACES, "").replaceAll("-", "");
 // Python's str.casefold, checked against every code point: upper-then-lower per character gives the same matches
 // (Cherokee folds the other way round but groups the same letters), except ẞ/ß, which casefold turns into "ss",
 // and Unicode 16 letters that Python 3.13 does not know.

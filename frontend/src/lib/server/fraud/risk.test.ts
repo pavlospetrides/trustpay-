@@ -26,6 +26,7 @@ describe("Python risk engine parity", () => {
 
   it("normalizes account whitespace and invoice case", () => {
     expect(assessPayment({ ...base, currentAccount: "syn thetic-1842" }).score).toBe(0);
+    expect(assessPayment({ ...base, currentAccount: "SYN-THETIC1842" }).score).toBe(0);
     expect(assessPayment({ ...base, invoiceNumber: "  abc-001 " }).recommended_status).toBe("blocked");
   });
 
