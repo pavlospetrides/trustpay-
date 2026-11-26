@@ -10,7 +10,18 @@ PDF.js native text and local English/Greek OCR now feed text and word layout to 
 
 The designated Supabase development project reported `exceed_egress_quota` during a signed-in Playwright rerun on 26 November. The test stopped at login before uploading an invoice. The project owner must restore service by resolving the quota or spend cap before hosted browser checks can resume. Earlier signed-in invoice review runs passed; local unit checks and live synthetic OpenAI extraction are separate from this hosted auth failure. This is unmerged branch evidence from `fix/invoice-extraction-fallback-20261125`.
 
-## Invoice-number matching (review item 6, branch `fix/invoice-number-matching`, not yet merged)
+## Accounting review and Cyprus VAT (review item 11, branch `feat/cyprus-vat-accounting`, not yet merged)
+
+A first slice of the accounting copilot: `POST /api/v1/accounting/review` checks an invoice's amounts and suggests how to book it. Deterministic TypeScript in `frontend/src/lib/server/accounting/`; no AI, nothing stored, nothing posted. Details, rules and sources: [accounting-review.md](accounting-review.md).
+- **Confirmed errors** (the document does not add up): net + VAT ≠ total, quantity × price ≠ line, line or summary VAT ≠ rate, lines or summary ≠ totals, a Cyprus supplier stating a rate that did not exist on the invoice date.
+- **For professional review**: the VAT treatment (domestic, zero-rated or exempt, domestic reverse charge for construction, scrap and phones, EU reverse charge, foreign VAT, non-EU supplies), input VAT recoverability (never assumed), missing supplier VAT number, non-euro amounts, capitalisation above a threshold.
+- **Suggestions**: an expense category per line from keyword rules (organization lists accepted), and a balanced draft journal entry, reversed for credit notes.
+
+Buyer details are never assumed: without a confirmed Cyprus buyer (country) and its VAT registration status, the review keeps the arithmetic checks but withholds the Cyprus treatment and the draft entry, and asks for the missing details or reports that a non-Cyprus buyer is out of scope.
+
+Not done yet: no screen uses it. The universal reader that extracts net, VAT and line items is on `main` since #41, so the invoice screens can now pass its reviewed fields and the organization's country and VAT registration. Organization category lists are passed per request, not stored.
+
+## Invoice-number matching (review item 6, merged in [#37](https://github.com/pavlospetrides/trustpay-/pull/37))
 
 One matching rule for invoice numbers, `invoiceNumberKey` in `fraud/risk.ts`: letter case, spacing, punctuation, invisible marks and leading zeros per digit group are ignored, so `AS-2026-0114`, `as 2026 114` and `AS2026114` are the same number, while `INV-1014` and `INV-114` stay different.
 - Exact copies keep the existing hard blocks (`DUPLICATE_PAID_INVOICE`, `DUPLICATE_OPEN_INVOICE`, +100).

@@ -13,6 +13,7 @@ Source of truth: the Next.js route handler `frontend/src/lib/server/api/handler.
 | POST | `/api/v1/invoices/{id}/hold` | hold, if status permits |
 | GET | `/api/v1/suppliers` | summary supplier data |
 | GET | `/api/v1/audit` | persistent local audit events |
+| POST | `/api/v1/accounting/review` | stateless accounting review of invoice amounts: arithmetic, Cyprus VAT rates and treatment, expense category, draft journal entry. Stores nothing; see [docs/accounting-review.md](docs/accounting-review.md) |
 | GET | `/api/v1/integrations` | explicit Jinius mock/disconnected status; in PostgreSQL mode, last sync run and rows waiting for human review |
 | POST | `/api/v1/integrations/jinius/sync` | owner/admin only, PostgreSQL mode; imports the synthetic Jinius demo feed once per record |
 | POST | `/api/v1/integrations/jinius/imports/{external_id}/{revision}/resolve` | owner/admin/analyst, PostgreSQL mode; body `{supplier_id}` assigns an existing supplier to an unknown-supplier import and assesses it once |

@@ -32,6 +32,19 @@ describe("single-server synthetic API", () => {
       expect((await audit.json()).filter((event: { invoice_id: string }) => event.invoice_id === "INV-2409").map((event: { action: string }) => event.action)).toEqual(["APPROVE", "VERIFY", "ASSESSED"]);
     } finally { db.close(); }
   });
+  it("serves the stateless accounting review and validates its input", async () => {
+    const db = new DemoStore(":memory:");
+    const context = { mode: "sqlite" as const, demo: db };
+    const call = (body: unknown) => handleApiRequest(request("v1/accounting/review", "POST", body), ["v1", "accounting", "review"], context);
+    try {
+      const ok = await call({ invoice_date: "2026-11-20", currency: "EUR", supplier: { name: "Synthetic Supplier Ltd", country: "CY", vat_number: "CY10012345A" }, buyer: { country: "CY", vat_registered: true }, totals: { net_cents: 10_000, vat_cents: 1_900, gross_cents: 11_900 }, lines: [{ description: "Office stationery", net_cents: 10_000, vat_rate: "19", vat_cents: 1_900 }] });
+      expect(ok.status).toBe(200);
+      expect(await ok.json()).toMatchObject({ status: "needs_review", treatment: { code: "domestic" }, category: { id: "office_expenses" }, journal: { status: "draft" } });
+      expect((await call({ invoice_date: "2026-11-20" })).status).toBe(422);
+      // Nothing is stored: the demo invoices and audit trail are unchanged.
+      expect(db.audit().some((event) => event.action.includes("ACCOUNT"))).toBe(false);
+    } finally { db.close(); }
+  });
   it("serves the duplicate-review route and validates its input", async () => {
     const db = new DemoStore(":memory:");
     const context = { mode: "sqlite" as const, demo: db };
