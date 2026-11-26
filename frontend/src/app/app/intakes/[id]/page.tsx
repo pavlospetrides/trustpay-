@@ -8,7 +8,7 @@ import { ArrowLeft, FileCheck2, RotateCcw } from "lucide-react";
 import { api } from "@/lib/api";
 import type { InvoiceDraftFields } from "@/lib/intake";
 import type { UniversalDocument } from "@/lib/server/invoices/universal";
-import { missingReviewFields } from "@/lib/intake";
+import { extractionPresentation, missingReviewFields } from "@/lib/intake";
 import { useApi } from "@/hooks/use-api";
 import { ErrorState, Loading, PageHeading, Panel } from "@/components/ui/primitives";
 
@@ -145,6 +145,7 @@ export default function InvoiceIntakeReview() {
   if (draft.error && !draft.data) return <ErrorState message={draft.error} retry={draft.refresh}/>;
   if (!intake || !fields) return null;
   const missing = missingReviewFields(fields);
+  const extraction = extractionPresentation(intake);
   const original = intake.original_fields;
   const documentEvidence = activeDocument;
   const evidenceByField = documentEvidence ? {
@@ -163,8 +164,9 @@ export default function InvoiceIntakeReview() {
     <Link className="back-link" href="/app/payments/new"><ArrowLeft size={17}/> New assessment</Link>
     <PageHeading title="Review extracted invoice" description="Confirm every field before the server risk engine evaluates this invoice."/>
     <div className="intake-review-grid"><Panel className="intake-review-panel">
-      <div className="section-head"><div><span className="overline">EXTRACTION / {intake.method === "openai_vision" ? "VISION MODEL" : "LOCAL PDF TEXT"}</span><h2>Proposed invoice fields</h2><p>Highlighted fields need your attention. An extraction is never an approval.</p></div><FileCheck2 size={25} aria-hidden="true"/></div>
-      {intake.status === "provider_unavailable" && <div className="notice danger">Visual extraction is unavailable. Enter the fields manually or retry when the provider is configured.</div>}
+      <div className="section-head"><div><span className="overline">EXTRACTION / {extraction.method}</span><h2>Proposed invoice fields</h2><p>{extraction.outcome}. Highlighted fields need your attention. An extraction is never an approval.</p></div><FileCheck2 size={25} aria-hidden="true"/></div>
+      {extraction.warning && <div className="notice danger" role="alert">{extraction.warning}</div>}
+      {missing.length > 0 && <div className="notice danger" role="alert">Critical fields need review: {missing.map((field) => labels.find((item) => item.name === field)?.label ?? field).join(", ")}.</div>}
       {documentEvidence && <div className="intake-evidence-summary"><p><strong>Document type:</strong> {documentEvidence.document_type.replaceAll("_", " ")} · {intake.page_count ?? 1} page(s) · {documentEvidence.languages.join(", ") || "Language unknown"}</p>{intake.document?.multiple_invoices && <div className="notice danger">Multiple invoices were detected. If there is more than one, split the document and <Link href="/app/payments/new">upload each invoice separately</Link>. If this is one invoice, inspect every page and record an explicit correction below.</div>}</div>}
       {!fields.iban && <div className="notice danger">No payment IBAN is confirmed. You can save the review, but risk analysis requires a verified destination IBAN.</div>}
       {intake.usage && <p className="field-evidence">AI usage: {intake.usage.input_tokens} input tokens, {intake.usage.output_tokens} output tokens{intake.estimated_cost_usd !== null && intake.estimated_cost_usd !== undefined ? ` · estimated $${intake.estimated_cost_usd.toFixed(4)}` : ""}</p>}
@@ -206,7 +208,7 @@ export default function InvoiceIntakeReview() {
         <button className="button primary" type="button" disabled={busy || intake.status !== "reviewed" || !fields.iban} onClick={() => void analyze()}>{busy ? "Working…" : "Analyze risk"}</button></div>
       </form>
       {documentEvidence && !documentEvidence.line_items.length && <section className="intake-evidence-section" aria-label="Line items"><h3>Line items</h3><p>No line items were identified. Check the original document.</p></section>}
-    </Panel><aside className="intake-review-side"><Panel><h2>Original evidence</h2><p>Private file · {(intake.size_bytes / 1024).toFixed(0)} KB</p><button className="button quiet full" type="button" onClick={() => void showOriginal()}>View original</button><button className="button quiet full" type="button" onClick={() => void download()}>Download original</button>{preview && (intake.content_type === "application/pdf" ? <iframe className="intake-preview" title="Original invoice" src={preview}/> : <Image className="intake-preview" src={preview} alt="Original invoice" width={800} height={1100} unoptimized/>)}<button className="button quiet full" type="button" disabled={busy || intake.status === "analyzed" || intake.status === "reviewed" || intake.extraction_attempts >= 3} onClick={() => void retry()}><RotateCcw size={16}/> Retry extraction</button></Panel>
+    </Panel><aside className="intake-review-side"><Panel><h2>Original evidence</h2><p>Private file · {(intake.size_bytes / 1024).toFixed(0)} KB</p><button className="button quiet full" type="button" onClick={() => void showOriginal()}>View original</button><button className="button quiet full" type="button" onClick={() => void download()}>Download original</button>{preview && (intake.content_type === "application/pdf" ? <iframe className="intake-preview" title="Original invoice" src={preview}/> : <Image className="intake-preview" src={preview} alt="Original invoice" width={800} height={1100} unoptimized/>)}<button className="button quiet full" type="button" disabled={busy || !intake.retry_available} onClick={() => void retry()}><RotateCcw size={16}/> Retry extraction</button>{!intake.retry_available && intake.status === "needs_review" && intake.method === "local_pdf_text" && intake.extraction_attempts < 3 && <p className="field-evidence">Retry is available when external AI extraction is enabled for this development environment.</p>}</Panel>
       <Panel><h2>What happens next?</h2><p>TrustPay checks the confirmed IBAN, duplicate invoice number, and amount against this organization’s supplier history.</p><p>Scores are review priorities, not fraud probabilities. Approval remains server controlled.</p></Panel>
     </aside></div>
   </>;

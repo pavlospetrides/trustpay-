@@ -20,6 +20,9 @@ describe("OpenAI invoice adapter boundary", () => {
     expect(JSON.stringify(request)).toContain("input_file");
     expect(JSON.stringify(request)).toContain("Embedded invoice text");
     expect(JSON.stringify(request)).toContain("untrusted");
+    expect(JSON.stringify(request)).toContain('"detail":"high"');
+    expect(JSON.stringify(request)).toContain("do not calculate line-level VAT or gross totals");
+    expect(JSON.stringify(request)).toContain("every printed bank account");
     expect(request.store).toBe(false);
   });
   it("sends a synthetic image for structured extraction without storing it", async () => {

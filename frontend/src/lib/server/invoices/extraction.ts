@@ -87,5 +87,6 @@ export function parseLabeledText(text: string): ExtractionResult {
   }
   for (const key of conflicts) uncertain.add(key);
   for (const key of requiredFields) if (!fields[key]) uncertain.add(key);
-  return { fields, uncertain_fields: [...uncertain].sort(), method: "local_pdf_text", status: "needs_review", error_code: null };
+  const recognizedCritical = requiredFields.filter((key) => key !== "iban" && fields[key]).length;
+  return { fields, uncertain_fields: [...uncertain].sort(), method: "local_pdf_text", status: "needs_review", error_code: recognizedCritical === 0 ? "LOCAL_EXTRACTION_FAILED" : recognizedCritical < 5 ? "LOCAL_EXTRACTION_PARTIAL" : null };
 }

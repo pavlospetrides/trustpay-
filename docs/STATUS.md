@@ -2,6 +2,10 @@
 
 **Start here:** [handoff for 26 November onward](handoff-2026-11-25.md) lists what merged on 25 November, the owner actions still open and the work order.
 
+## Hosted development auth blocker — 26 November 2026
+
+The designated Supabase development project reported `exceed_egress_quota` during a signed-in Playwright rerun on 26 November. The test stopped at login before uploading an invoice. The project owner must restore service by resolving the quota or spend cap before hosted browser checks can resume. Earlier signed-in invoice review runs passed; local unit checks and live synthetic OpenAI extraction are separate from this hosted auth failure. This is unmerged branch evidence from `fix/invoice-extraction-fallback-20261125`.
+
 ## Verified-account trust and supplier identity checks (#32, merged in [#33](https://github.com/pavlospetrides/trustpay-/pull/33), `df6b51a`)
 
 From the financial-controls review, items 4 and 7.

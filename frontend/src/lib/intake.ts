@@ -30,6 +30,7 @@ export type InvoiceIntake = {
   method: "local_pdf_text" | "openai_vision" | null;
   error_code: string | null;
   extraction_attempts: number;
+  retry_available?: boolean;
   explanation: string | null;
   explanation_method: "verified_policy" | "openai_summary" | null;
   invoice_id: string | null;
@@ -37,6 +38,15 @@ export type InvoiceIntake = {
   size_bytes: number;
   created_at: string;
 };
+
+export function extractionPresentation(intake: Pick<InvoiceIntake, "method" | "error_code" | "status">): { method: string; outcome: string; warning: string | null } {
+  const method = intake.method === "openai_vision" ? "OpenAI Multimodal" : intake.method === "local_pdf_text" ? "Local PDF Fallback" : "Extraction Failed";
+  if (intake.status === "provider_unavailable") return { method, outcome: "Extraction Failed", warning: "No reliable invoice fields were extracted. Enter the fields manually or retry when OpenAI extraction is available." };
+  if (intake.error_code === "VISION_PROVIDER_UNAVAILABLE") return { method, outcome: "Manual Review Required", warning: "OpenAI extraction was unavailable. Local PDF text was used; check every field against the original document." };
+  if (intake.error_code === "LOCAL_EXTRACTION_PARTIAL") return { method, outcome: "Manual Review Required", warning: "Local text extraction missed critical fields. Check the original document and complete the missing fields." };
+  if (intake.error_code === "LOCAL_EXTRACTION_FAILED") return { method, outcome: "Extraction Failed", warning: "No reliable invoice fields were extracted. Enter the fields manually or retry when OpenAI extraction is available." };
+  return { method, outcome: intake.status === "needs_review" ? "Manual Review Required" : "Reviewed", warning: null };
+}
 
 export type AssessmentHistory = {
   id: string;

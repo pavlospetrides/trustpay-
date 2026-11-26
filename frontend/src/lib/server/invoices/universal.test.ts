@@ -27,6 +27,22 @@ describe("universal invoice validation", () => {
     doc.financial.gross_total = field("1.300,00");
     expect(validateUniversalDocument(doc)).toEqual(expect.arrayContaining([expect.objectContaining({ code: "GROSS_MISMATCH" })]));
   });
+  it("does not subtract a discount twice when the printed net already includes it", () => {
+    const doc = sample();
+    doc.financial.net_amount = field("750.00");
+    doc.financial.discounts = field("40.00");
+    doc.financial.vat_amount = field("72.90");
+    doc.financial.gross_total = field("822.90");
+    expect(validateUniversalDocument(doc).map((finding) => finding.code)).not.toContain("GROSS_MISMATCH");
+    doc.financial.gross_total = field("782.90");
+    expect(validateUniversalDocument(doc).map((finding) => finding.code)).toContain("GROSS_MISMATCH");
+    doc.financial.gross_total = field("850.00");
+    expect(validateUniversalDocument(doc).map((finding) => finding.code)).toContain("GROSS_MISMATCH");
+    doc.financial.net_amount = empty;
+    doc.financial.subtotal = field("790.00");
+    doc.financial.gross_total = field("822.90");
+    expect(validateUniversalDocument(doc).map((finding) => finding.code)).not.toContain("GROSS_MISMATCH");
+  });
   it("blocks unrelated and multiple-invoice documents", () => {
     const doc = sample();
     doc.document_type = "purchase_order";

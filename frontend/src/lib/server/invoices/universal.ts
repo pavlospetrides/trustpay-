@@ -114,12 +114,18 @@ export function validateUniversalDocument(document: UniversalDocument): Validati
   const due = document.document.due_date.value;
   if (date && due && /^\d{4}-\d{2}-\d{2}$/.test(date) && /^\d{4}-\d{2}-\d{2}$/.test(due) && due < date) add("DATE_ORDER", "warning", "document.due_date", "Due date precedes invoice date");
   const gross = minorUnits(document.financial.gross_total.value);
-  const net = minorUnits(document.financial.net_amount.value ?? document.financial.subtotal.value);
+  const statedNet = minorUnits(document.financial.net_amount.value);
+  const net = statedNet ?? minorUnits(document.financial.subtotal.value);
   const vat = minorUnits(document.financial.vat_amount.value);
   const charges = minorUnits(document.financial.additional_charges.value) ?? 0n;
   const shipping = minorUnits(document.financial.shipping.value) ?? 0n;
   const discounts = minorUnits(document.financial.discounts.value) ?? 0n;
-  if (gross !== null && net !== null && vat !== null && (net + vat + charges + shipping - discounts - gross > 2n || gross - (net + vat + charges + shipping - discounts) > 2n)) add("GROSS_MISMATCH", "warning", "financial.gross_total", "Gross total differs from net, tax and adjustments");
+  if (gross !== null && net !== null && vat !== null) {
+    const expectedGross = net + vat + charges + shipping - (statedNet === null ? discounts : 0n);
+    const withinTolerance = (value: bigint) => value - gross <= 2n && gross - value <= 2n;
+    // Net amount already includes discounts; subtotal requires subtracting them.
+    if (!withinTolerance(expectedGross)) add("GROSS_MISMATCH", "warning", "financial.gross_total", "Gross total differs from net, tax and adjustments");
+  }
   const paid = minorUnits(document.financial.amount_paid.value);
   const outstanding = minorUnits(document.financial.outstanding_balance.value);
   if (gross !== null && paid !== null && outstanding !== null && gross - paid !== outstanding) add("BALANCE_MISMATCH", "warning", "financial.outstanding_balance", "Outstanding balance differs from gross less paid");

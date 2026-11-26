@@ -10,6 +10,14 @@ const org = "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa";
 const id = "bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb";
 
 describe("tenant-scoped intake review", () => {
+  it("does not consume a retry when no intelligent reader is configured", async () => {
+    const connection = { query: async (sql: string) => sql.includes("from public.invoice_intakes t") ? { rows: [{ id, organization_id: org, status: "needs_review", extraction_attempts: 0 }] } : { rows: [] }, release: () => {} };
+    const pool = { connect: async () => connection };
+    const protector = new AccountProtector(Buffer.alloc(32, "a"), Buffer.alloc(32, "b"));
+    const storage = new PrivateInvoiceStorage({ storage: { from: () => ({ upload: async () => ({ error: null }), download: async () => { throw new Error("Should not download"); }, remove: async () => ({ error: null }) }) } });
+    const intake = new IntakeStore(pool, new PgStore(pool, protector), storage, null);
+    await expect(intake.retry(id, { userId: "11111111-1111-4111-8111-111111111111", organizationId: org, role: "analyst" })).rejects.toThrow("OpenAI extraction is not configured");
+  });
   it("rejects an existing supplier ID outside the authenticated organization", async () => {
     const calls: string[] = [];
     const connection = { query: async (sql: string) => { calls.push(sql); if (sql.includes("from public.invoice_intakes t")) return { rows: [{ id, organization_id: org, status: "needs_review" }] }; return { rows: [] }; }, release: () => {} };
