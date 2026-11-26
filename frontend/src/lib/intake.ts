@@ -1,3 +1,5 @@
+import { sourceText } from "./i18n/core";
+
 export type InvoiceDraftFields = {
   supplier_name: string | null;
   registration_number: string | null;
@@ -40,15 +42,15 @@ export type InvoiceIntake = {
 };
 
 export function extractionPresentation(intake: Pick<InvoiceIntake, "method" | "error_code" | "status">): { method: string; outcome: string; warning: string | null } {
-  const method = intake.method === "openai_vision" ? "OpenAI Multimodal" : intake.method === "openai_ocr_text" ? "OCR + OpenAI Text" : intake.method === "local_ocr_text" ? "Local OCR" : intake.method === "local_pdf_text" ? "Local PDF Fallback" : "Extraction Failed";
-  if (intake.status === "provider_unavailable") return { method, outcome: "Extraction Failed", warning: "No reliable invoice fields were extracted. Enter the fields manually or retry when OpenAI extraction is available." };
-  if (intake.error_code === "OCR_LOW_CONFIDENCE") return { method, outcome: "Manual Review Required", warning: "OCR quality is insufficient. Compare every financial field with the original document." };
-  if (intake.error_code === "OCR_ANALYSIS_NOT_CONFIGURED") return { method, outcome: "Manual Review Required", warning: "OCR text was read locally without OpenAI analysis. Check every field against the original document." };
-  if (intake.error_code === "TEXT_ANALYSIS_PROVIDER_UNAVAILABLE") return { method, outcome: "Manual Review Required", warning: "OpenAI text analysis was unavailable. Local OCR text was used; check every field against the original document." };
-  if (intake.error_code === "VISION_PROVIDER_UNAVAILABLE") return { method, outcome: "Manual Review Required", warning: "OpenAI extraction was unavailable. Local PDF text was used; check every field against the original document." };
-  if (intake.error_code === "LOCAL_EXTRACTION_PARTIAL") return { method, outcome: "Manual Review Required", warning: "Local text extraction missed critical fields. Check the original document and complete the missing fields." };
-  if (intake.error_code === "LOCAL_EXTRACTION_FAILED") return { method, outcome: "Extraction Failed", warning: "No reliable invoice fields were extracted. Enter the fields manually or retry when OpenAI extraction is available." };
-  return { method, outcome: intake.status === "needs_review" ? "Manual Review Required" : "Reviewed", warning: null };
+  const method = intake.method === "openai_vision" ? sourceText("intake.method-vision") : intake.method === "openai_ocr_text" ? sourceText("intake.method-ocr-openai") : intake.method === "local_ocr_text" ? sourceText("intake.method-ocr-local") : intake.method === "local_pdf_text" ? sourceText("intake.method-pdf-local") : sourceText("intake.outcome-failed");
+  if (intake.status === "provider_unavailable") return { method, outcome: sourceText("intake.outcome-failed"), warning: sourceText("intake.warning-no-fields") };
+  if (intake.error_code === "OCR_LOW_CONFIDENCE") return { method, outcome: sourceText("intake.outcome-manual"), warning: sourceText("intake.warning-ocr-confidence") };
+  if (intake.error_code === "OCR_ANALYSIS_NOT_CONFIGURED") return { method, outcome: sourceText("intake.outcome-manual"), warning: sourceText("intake.warning-ocr-local") };
+  if (intake.error_code === "TEXT_ANALYSIS_PROVIDER_UNAVAILABLE") return { method, outcome: sourceText("intake.outcome-manual"), warning: sourceText("intake.warning-ocr-provider") };
+  if (intake.error_code === "VISION_PROVIDER_UNAVAILABLE") return { method, outcome: sourceText("intake.outcome-manual"), warning: sourceText("intake.warning-pdf-provider") };
+  if (intake.error_code === "LOCAL_EXTRACTION_PARTIAL") return { method, outcome: sourceText("intake.outcome-manual"), warning: sourceText("intake.warning-partial") };
+  if (intake.error_code === "LOCAL_EXTRACTION_FAILED") return { method, outcome: sourceText("intake.outcome-failed"), warning: sourceText("intake.warning-no-fields") };
+  return { method, outcome: intake.status === "needs_review" ? sourceText("intake.outcome-manual") : sourceText("intake.outcome-reviewed"), warning: null };
 }
 
 export type AssessmentHistory = {
@@ -73,9 +75,9 @@ const accepted: Record<string, string[]> = {
 
 export function validateInvoiceFile(file: Pick<File, "name" | "type" | "size">): string | null {
   const extension = file.name.split(".").pop()?.toLowerCase() || "";
-  if (!accepted[file.type]?.includes(extension)) return "Choose a PDF, PNG, JPEG, or WEBP invoice.";
-  if (file.size < 1) return "The invoice file is empty.";
-  if (file.size > 10 * 1024 * 1024) return "Invoice files must be 10 MB or smaller.";
+  if (!accepted[file.type]?.includes(extension)) return sourceText("intake.choose-supported-invoice");
+  if (file.size < 1) return sourceText("the-invoice-file-is-empty");
+  if (file.size > 10 * 1024 * 1024) return sourceText("invoice-files-must-be-10-mb-or-smaller");
   return null;
 }
 

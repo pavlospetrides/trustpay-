@@ -363,7 +363,7 @@ input:focus, select:focus, textarea:focus { border-color: var(--cyan); box-shado
 .intake-fields .field-uncertain small { color: var(--amber); }
 .intake-evidence-section { margin-top: 24px; border-top: 1px solid rgba(24,54,76,.12); padding-top: 18px; }
 .intake-evidence-section h3 { margin: 0 0 10px; font-size: 1rem; }
-.intake-evidence-section ul { margin: 0; padding-left: 20px; }
+.intake-evidence-section ul { margin: 0; padding-inline-start: 20px; }
 .intake-evidence-section li { margin: 5px 0; }
 .intake-lines-scroll { overflow-x: auto; }
 .intake-lines-scroll table { width: 100%; border-collapse: collapse; font-size: .85rem; }

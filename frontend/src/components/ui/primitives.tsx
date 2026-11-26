@@ -1,36 +1,48 @@
+"use client";
+import { useI18n } from "@/lib/i18n/provider";
 import Link from "next/link";
 import type { ReactNode } from "react";
 import type { Invoice } from "@/lib/types";
-import { date, euro, statusLabel } from "@/lib/api";
+
 
 export function Panel({ children, className = "" }: { children: ReactNode; className?: string }) {
   return <section className={`panel ${className}`}>{children}</section>;
 }
 export function Badge({ status }: { status: string }) {
+  const { statusLabel } = useI18n();
   return <span className={`badge badge-${status}`}>{statusLabel(status)}</span>;
 }
 export function Risk({ invoice }: { invoice: Invoice }) {
-  return <span className={`risk risk-${invoice.status}`}><strong>{invoice.risk}</strong><small>/ 100 · review priority</small></span>;
+  const { t } = useI18n();
+
+  return <span className={`risk risk-${invoice.status}`}><strong>{invoice.risk}</strong><small>{t("100-review-priority")}</small></span>;
 }
 export function PageHeading({ title, description, action }: { title: string; description: string; action?: ReactNode }) {
   return <div className="page-heading"><div><h1>{title}</h1><p>{description}</p></div>{action}</div>;
 }
-export function Loading() { return <div className="state panel" role="status">Loading local demo data…</div>; }
+export function Loading() {
+  const { t } = useI18n();
+   return <div className="state panel" role="status">{t("loading-local-demo-data")}</div>; }
 export function ErrorState({ message, retry }: { message: string; retry: () => void }) {
-  return <div className="state panel" role="alert"><h2>Could not load this view</h2><p>{message}</p><button className="button secondary" onClick={retry}>Retry connection</button></div>;
+  const { t, message: localizeMessage } = useI18n();
+
+  return <div className="state panel" role="alert"><h2>{t("could-not-load-this-view")}</h2><p>{localizeMessage(message)}</p><button className="button secondary" onClick={retry}>{t("retry-connection")}</button></div>;
 }
-export function Empty({ message = "No records match these filters." }: { message?: string }) {
-  return <div className="state panel">{message}</div>;
+export function Empty({ message }: { message?: string }) {
+  const { t } = useI18n();
+  return <div className="state panel">{message ?? t("no-records-match-these-filters")}</div>;
 }
 export function InvoiceTable({ invoices }: { invoices: Invoice[] }) {
-  return <div className="table-wrap"><table><thead><tr><th scope="col">Invoice / supplier</th><th scope="col">Amount</th><th scope="col">Submitted</th><th scope="col">Review priority</th><th scope="col">Status</th><th scope="col">Source</th></tr></thead><tbody>
+  const { t, euro, date, riskText } = useI18n();
+
+  return <div className="table-wrap"><table><thead><tr><th scope="col">{t("invoice-supplier")}</th><th scope="col">{t("amount")}</th><th scope="col">{t("submitted")}</th><th scope="col">{t("review-priority")}</th><th scope="col">{t("status")}</th><th scope="col">{t("source")}</th></tr></thead><tbody>
     {invoices.map(invoice => <tr key={invoice.id}>
-      <td><Link className="row-link" href={`/app/payments/${encodeURIComponent(invoice.id)}`}><strong>{invoice.invoice}</strong><span>{invoice.supplier} · {invoice.id}</span></Link></td>
+      <td><Link className="row-link" href={`/app/payments/${encodeURIComponent(invoice.id)}`}><strong><bdi>{invoice.invoice}</bdi></strong><span>{invoice.supplier} · {invoice.id}</span></Link></td>
       <td className="numeric">{euro(invoice.amount_cents)}</td>
       <td className="numeric">{date(invoice.date)}</td>
-      <td><strong>{invoice.risk}/100</strong><span className="cell-sub">{invoice.reason}</span></td>
+      <td><strong><bdi>{invoice.risk}/100</bdi></strong><span className="cell-sub">{riskText(invoice.reason)}</span></td>
       <td><Badge status={invoice.status}/></td>
-      <td className="muted">{invoice.source === "jinius_demo_adapter" ? "Synthetic Jinius demo" : invoice.source === "uploaded" ? "Uploaded invoice" : invoice.source === "synthetic_seed" ? "Synthetic seed" : "Manual demo"}</td>
+      <td className="muted">{invoice.source === "jinius_demo_adapter" ? t("synthetic-jinius-demo") : invoice.source === "uploaded" ? t("uploaded-invoice") : invoice.source === "synthetic_seed" ? t("synthetic-seed") : t("manual-demo")}</td>
     </tr>)}
   </tbody></table></div>;
 }

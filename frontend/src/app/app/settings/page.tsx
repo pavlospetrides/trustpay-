@@ -1,4 +1,6 @@
 "use client";
+import { useI18n } from "@/lib/i18n/provider";
+import { LanguageSelector } from "@/components/language-selector";
 import Link from "next/link";
 import { Moon, Sun, Monitor, ArrowUpRight } from "lucide-react";
 import { api } from "@/lib/api";
@@ -8,35 +10,37 @@ import { ErrorState, Loading, PageHeading, Panel } from "@/components/ui/primiti
 import type { Theme } from "@/lib/crystal";
 
 const options = [
-  { id: "light", label: "Light", icon: Sun, description: "Ice-white crystal surfaces" },
-  { id: "dark", label: "Dark", icon: Moon, description: "Midnight glass surfaces" },
-  { id: "system", label: "System", icon: Monitor, description: "Follow this device" },
+  { id: "light", label: "light", icon: Sun, description: "ice-white-crystal-surfaces" },
+  { id: "dark", label: "dark", icon: Moon, description: "midnight-glass-surfaces" },
+  { id: "system", label: "system", icon: Monitor, description: "follow-this-device" },
 ] as const;
 
 export default function Settings() {
+  const { t, modeLabel, connectionLabel } = useI18n();
+
   const { theme, preference, setTheme } = useTheme();
   const health = useApi(api.health);
   return <>
-    <PageHeading title="Workspace settings" description="Local display preferences and the real service state for this demo."/>
+    <PageHeading title={t("workspace-settings")} description={t("local-display-preferences-and-the-real-service-state")} action={<LanguageSelector/>}/>
     <div className="two-column settings-grid">
-      <Panel><div className="section-head"><div><h2>Appearance</h2><p>Choose a theme for this browser.</p></div></div>
-        <div className="theme-options" role="group" aria-label="Color theme">
+      <Panel><div className="section-head"><div><h2>{t("appearance")}</h2><p>{t("choose-a-theme-for-this-browser")}</p></div></div>
+        <div className="theme-options" role="group" aria-label={t("color-theme")}>
           {options.map(({ id, label, icon: Icon, description }) => <button key={id} type="button" className="theme-option" aria-pressed={preference === id} onClick={() => setTheme(id as Theme | "system")}>
-            <Icon size={21} aria-hidden="true"/><span><strong>{label}</strong><small>{description}</small></span>
+            <Icon size={21} aria-hidden="true"/><span><strong>{t(label)}</strong><small>{t(description)}</small></span>
           </button>)}
         </div>
-        <p className="settings-note">Current appearance: <strong>{theme}</strong>. The choice is stored only in this browser.</p>
+        <p className="settings-note">{t("current-appearance")} <strong>{t(theme)}</strong>{t("the-choice-is-stored-only-in-this-browser")}</p>
       </Panel>
-      <Panel><div className="section-head"><div><h2>Demo environment</h2><p>Reported by the server health endpoint.</p></div></div>
+      <Panel><div className="section-head"><div><h2>{t("demo-environment")}</h2><p>{t("reported-by-the-server-health-endpoint")}</p></div></div>
         {health.loading ? <Loading/> : health.error ? <ErrorState message={health.error} retry={health.refresh}/> : <dl className="settings-facts">
-          <div><dt>Mode</dt><dd>{health.data?.mode}</dd></div>
-          <div><dt>Risk engine</dt><dd>{health.data?.risk_model}</dd></div>
-          <div><dt>Jinius</dt><dd>{health.data?.jinius_connection}</dd></div>
-          <div><dt>Payment initiation</dt><dd>{health.data?.payment_initiation ? "Enabled" : "Disabled"}</dd></div>
+          <div><dt>{t("mode")}</dt><dd>{health.data && modeLabel(health.data.mode)}</dd></div>
+          <div><dt>{t("risk-engine")}</dt><dd>{health.data && modeLabel(health.data.risk_model)}</dd></div>
+          <div><dt>Jinius</dt><dd>{health.data && connectionLabel(health.data.jinius_connection)}</dd></div>
+          <div><dt>{t("payment-initiation-2")}</dt><dd>{health.data?.payment_initiation ? t("enabled") : t("disabled")}</dd></div>
         </dl>}
-        <Link className="text-link" href="/app/integrations">Inspect integrations <ArrowUpRight size={16}/></Link>
+        <Link className="text-link" href="/app/integrations">{t("inspect-integrations")} <ArrowUpRight size={16}/></Link>
       </Panel>
     </div>
-    <Panel className="settings-links"><h2>More workspace views</h2><div><Link href="/app/audit">Audit trail <ArrowUpRight size={16}/></Link><Link href="/app/integrations">Integrations <ArrowUpRight size={16}/></Link><Link href="/app/payments/new">New assessment <ArrowUpRight size={16}/></Link></div></Panel>
+    <Panel className="settings-links"><h2>{t("more-workspace-views")}</h2><div><Link href="/app/audit">{t("audit-trail")} <ArrowUpRight size={16}/></Link><Link href="/app/integrations">{t("integrations")} <ArrowUpRight size={16}/></Link><Link href="/app/payments/new">{t("new-assessment")} <ArrowUpRight size={16}/></Link></div></Panel>
   </>;
 }
