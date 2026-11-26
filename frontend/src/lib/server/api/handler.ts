@@ -87,7 +87,7 @@ export async function handleApiRequest(request: Request, segments: string[], con
     const method = request.method;
     if (segments.length === 1 && segments[0] === "health" && method === "GET") {
       if (context.mode === "postgres") await context.pg.health();
-      return json({ status: "ok", mode: context.mode === "postgres" ? "supabase-postgres" : "synthetic-local-demo", payment_initiation: false, jinius_connection: context.mode === "postgres" ? "disconnected" : "mock", risk_model: "auditable-rules-v1", invoice_reader: context.mode === "postgres" && context.aiEnabled ? "openai_vision" : "local_pdf_text" });
+      return json({ status: "ok", mode: context.mode === "postgres" ? "supabase-postgres" : "synthetic-local-demo", payment_initiation: false, jinius_connection: context.mode === "postgres" ? "disconnected" : "mock", risk_model: "auditable-rules-v1", invoice_reader: context.mode === "postgres" && context.aiEnabled ? process.env.TRUSTPAY_INVOICE_READER === "ocr" ? "openai_ocr_text" : "openai_vision" : "local_pdf_text" });
     }
     if (segments[0] !== "v1") return missing();
     const path = segments.slice(1);

@@ -1,0 +1,27 @@
+{
+  "generated_synthetic_cases": 2,
+  "results": [
+    {
+      "format": "image/jpeg",
+      "cer": 0.05161290322580645,
+      "method": "openai_ocr_text",
+      "elapsed_ms": 9821,
+      "input_tokens": 4493,
+      "output_tokens": 1679,
+      "estimated_api_cost_usd": 0.010925,
+      "critical_fields_correct": 6,
+      "critical_fields_total": 6
+    },
+    {
+      "format": "application/pdf",
+      "cer": 0.08917197452229299,
+      "method": "openai_ocr_text",
+      "elapsed_ms": 8143,
+      "input_tokens": 4532,
+      "output_tokens": 1693,
+      "estimated_api_cost_usd": 0.011017,
+      "critical_fields_correct": 6,
+      "critical_fields_total": 6
+    }
+  ]
+}

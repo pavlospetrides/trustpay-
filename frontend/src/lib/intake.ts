@@ -27,7 +27,7 @@ export type InvoiceIntake = {
   supplier_id: string | null;
   create_new_supplier: boolean;
   uncertain_fields: string[];
-  method: "local_pdf_text" | "openai_vision" | null;
+  method: "local_pdf_text" | "local_ocr_text" | "openai_ocr_text" | "openai_vision" | null;
   error_code: string | null;
   extraction_attempts: number;
   retry_available?: boolean;
@@ -40,8 +40,10 @@ export type InvoiceIntake = {
 };
 
 export function extractionPresentation(intake: Pick<InvoiceIntake, "method" | "error_code" | "status">): { method: string; outcome: string; warning: string | null } {
-  const method = intake.method === "openai_vision" ? "OpenAI Multimodal" : intake.method === "local_pdf_text" ? "Local PDF Fallback" : "Extraction Failed";
+  const method = intake.method === "openai_vision" ? "OpenAI Multimodal" : intake.method === "openai_ocr_text" ? "OCR + OpenAI Text" : intake.method === "local_ocr_text" ? "Local OCR" : intake.method === "local_pdf_text" ? "Local PDF Fallback" : "Extraction Failed";
   if (intake.status === "provider_unavailable") return { method, outcome: "Extraction Failed", warning: "No reliable invoice fields were extracted. Enter the fields manually or retry when OpenAI extraction is available." };
+  if (intake.error_code === "OCR_LOW_CONFIDENCE") return { method, outcome: "Manual Review Required", warning: "OCR quality is insufficient. Compare every financial field with the original document." };
+  if (intake.error_code === "OCR_ANALYSIS_NOT_CONFIGURED") return { method, outcome: "Manual Review Required", warning: "OCR text was read locally without OpenAI analysis. Check every field against the original document." };
   if (intake.error_code === "VISION_PROVIDER_UNAVAILABLE") return { method, outcome: "Manual Review Required", warning: "OpenAI extraction was unavailable. Local PDF text was used; check every field against the original document." };
   if (intake.error_code === "LOCAL_EXTRACTION_PARTIAL") return { method, outcome: "Manual Review Required", warning: "Local text extraction missed critical fields. Check the original document and complete the missing fields." };
   if (intake.error_code === "LOCAL_EXTRACTION_FAILED") return { method, outcome: "Extraction Failed", warning: "No reliable invoice fields were extracted. Enter the fields manually or retry when OpenAI extraction is available." };
