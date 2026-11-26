@@ -15,12 +15,22 @@ export type InvoiceIntake = {
   id: string;
   status: "needs_review" | "provider_unavailable" | "reviewed" | "analyzed";
   fields: InvoiceDraftFields;
+  original_fields?: InvoiceDraftFields;
+  document?: import("./server/invoices/universal").UniversalDocument | null;
+  reviewed_document?: import("./server/invoices/universal").UniversalDocument | null;
+  classification_override_reason?: string | null;
+  single_invoice_confirmed?: boolean;
+  findings?: import("./server/invoices/universal").ValidationFinding[];
+  usage?: { input_tokens: number; output_tokens: number } | null;
+  estimated_cost_usd?: number | null;
+  page_count?: number;
   supplier_id: string | null;
   create_new_supplier: boolean;
   uncertain_fields: string[];
   method: "local_pdf_text" | "openai_vision" | null;
   error_code: string | null;
   extraction_attempts: number;
+  retry_available?: boolean;
   explanation: string | null;
   explanation_method: "verified_policy" | "openai_summary" | null;
   invoice_id: string | null;
@@ -28,6 +38,15 @@ export type InvoiceIntake = {
   size_bytes: number;
   created_at: string;
 };
+
+export function extractionPresentation(intake: Pick<InvoiceIntake, "method" | "error_code" | "status">): { method: string; outcome: string; warning: string | null } {
+  const method = intake.method === "openai_vision" ? "OpenAI Multimodal" : intake.method === "local_pdf_text" ? "Local PDF Fallback" : "Extraction Failed";
+  if (intake.status === "provider_unavailable") return { method, outcome: "Extraction Failed", warning: "No reliable invoice fields were extracted. Enter the fields manually or retry when OpenAI extraction is available." };
+  if (intake.error_code === "VISION_PROVIDER_UNAVAILABLE") return { method, outcome: "Manual Review Required", warning: "OpenAI extraction was unavailable. Local PDF text was used; check every field against the original document." };
+  if (intake.error_code === "LOCAL_EXTRACTION_PARTIAL") return { method, outcome: "Manual Review Required", warning: "Local text extraction missed critical fields. Check the original document and complete the missing fields." };
+  if (intake.error_code === "LOCAL_EXTRACTION_FAILED") return { method, outcome: "Extraction Failed", warning: "No reliable invoice fields were extracted. Enter the fields manually or retry when OpenAI extraction is available." };
+  return { method, outcome: intake.status === "needs_review" ? "Manual Review Required" : "Reviewed", warning: null };
+}
 
 export type AssessmentHistory = {
   id: string;
@@ -46,17 +65,18 @@ const accepted: Record<string, string[]> = {
   "application/pdf": ["pdf"],
   "image/png": ["png"],
   "image/jpeg": ["jpg", "jpeg"],
+  "image/webp": ["webp"],
 };
 
 export function validateInvoiceFile(file: Pick<File, "name" | "type" | "size">): string | null {
   const extension = file.name.split(".").pop()?.toLowerCase() || "";
-  if (!accepted[file.type]?.includes(extension)) return "Choose a PDF, PNG, or JPEG invoice.";
+  if (!accepted[file.type]?.includes(extension)) return "Choose a PDF, PNG, JPEG, or WEBP invoice.";
   if (file.size < 1) return "The invoice file is empty.";
   if (file.size > 10 * 1024 * 1024) return "Invoice files must be 10 MB or smaller.";
   return null;
 }
 
-const required = ["supplier_name", "invoice_number", "invoice_date", "total_amount", "currency", "iban"] as const;
+const required = ["supplier_name", "invoice_number", "invoice_date", "total_amount", "currency"] as const;
 export function missingReviewFields(fields: Partial<InvoiceDraftFields>): string[] {
   return required.filter((name) => !fields[name]?.trim());
 }

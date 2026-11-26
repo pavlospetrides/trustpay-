@@ -2,6 +2,10 @@
 
 **Start here:** [handoff for 26 November onward](handoff-2026-11-25.md) lists what merged on 25 November, the owner actions still open and the work order.
 
+## Hosted development auth blocker — 26 November 2026
+
+The designated Supabase development project reported `exceed_egress_quota` during a signed-in Playwright rerun on 26 November. The test stopped at login before uploading an invoice. The project owner must restore service by resolving the quota or spend cap before hosted browser checks can resume. Earlier signed-in invoice review runs passed; local unit checks and live synthetic OpenAI extraction are separate from this hosted auth failure. This is unmerged branch evidence from `fix/invoice-extraction-fallback-20261125`.
+
 ## Invoice-number matching (review item 6, branch `fix/invoice-number-matching`, not yet merged)
 
 One matching rule for invoice numbers, `invoiceNumberKey` in `fraud/risk.ts`: letter case, spacing, punctuation, invisible marks and leading zeros per digit group are ignored, so `AS-2026-0114`, `as 2026 114` and `AS2026114` are the same number, while `INV-1014` and `INV-114` stay different.
