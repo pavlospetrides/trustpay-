@@ -69,11 +69,10 @@ describe.skipIf(!disposableUrl)("disposable Supabase database", () => {
     expect((await call("POST", "/api/v1/invoice-intakes", "maker", pdfForm(`${text}Note: different\n`, "other.pdf"), key)).status).toBe(409);
     const path = `/api/v1/invoice-intakes/${upload.body.id}`;
     expect((await call("GET", path, "outsider")).status).toBe(404);
-    for (const attempt of [2, 3]) {
-      const extracted = await call("POST", `${path}/extract`, "maker");
-      expect([extracted.status, extracted.body.extraction_attempts]).toEqual([200, attempt]);
-    }
-    expect((await call("POST", `${path}/extract`, "maker")).status).toBe(429);
+    expect(upload.body.retry_available).toBe(false);
+    const extracted = await call("POST", `${path}/extract`, "maker");
+    expect([extracted.status, extracted.body.detail]).toEqual([503, "OpenAI extraction is not configured for this environment"]);
+    expect((await call("GET", path, "maker")).body.extraction_attempts).toBe(1);
     const review = await call("PATCH", path, "maker", { fields: upload.body.fields, supplier_id: "TEST-SUP", create_new_supplier: false });
     expect([review.status, review.body.status]).toEqual([200, "reviewed"]);
     const analyzed = await call("POST", `${path}/analyze`, "maker");
