@@ -70,6 +70,11 @@ describe("Python risk engine parity", () => {
       expect(invoiceNumberKey("INV-0001")).toBe(invoiceNumberKey("inv 1"));
       expect(invoiceNumberKey("INV-0")).toBe("inv0");
     });
+    it("matches a copy re-typed without its separators, keeping the zeros inside the number", () => {
+      expect(sameInvoiceNumber("AS-2026-0114", "AS20260114")).toBe(true);
+      expect(sameInvoiceNumber("AS20260114", "as-2026-0114")).toBe(true);
+      expect(assessPayment({ ...base, invoiceNumber: "AS20260114", otherOpenInvoices: ["AS-2026-0114"] }).signals.map((signal) => signal.code)).toContain("POSSIBLE_DUPLICATE_INVOICE");
+    });
     it("keeps genuinely different numbers apart", () => {
       expect(sameInvoiceNumber("INV-1014", "INV-114")).toBe(false);
       expect(sameInvoiceNumber("INV-114", "INV-115")).toBe(false);

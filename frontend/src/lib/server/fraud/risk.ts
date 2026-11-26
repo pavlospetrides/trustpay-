@@ -92,12 +92,15 @@ export function invoiceNumberKey(value: string): string {
     .map((part) => part.replace(/\d+/g, (digits) => digits.replace(/^0+(?=\d)/, "")))
     .join("");
 }
+const compactInvoiceNumber = (value: string) => casefold(pyStrip(value).normalize("NFKC")).replace(/[^\p{L}\p{N}]/gu, "");
 /** The exact comparison the hard duplicate blocks use: case-folded, surrounding whitespace removed. */
 export const exactInvoiceNumber = (value: string) => casefold(pyStrip(value));
 /** True when two invoice numbers are the same invoice under the matching rule above (exact match when there is no key). */
 export function sameInvoiceNumber(left: string, right: string): boolean {
   const key = invoiceNumberKey(left);
-  return key !== "" ? key === invoiceNumberKey(right) : casefold(pyStrip(left)) === casefold(pyStrip(right));
+  if (key === "") return casefold(pyStrip(left)) === casefold(pyStrip(right));
+  // Also match with separators removed but zeros kept, so "AS-2026-0114" matches a re-typed "AS20260114".
+  return key === invoiceNumberKey(right) || compactInvoiceNumber(left) === compactInvoiceNumber(right);
 }
 const DAY_MS = 86_400_000;
 const isoDay = (value: string | null | undefined) => (value && /^\d{4}-\d{2}-\d{2}/.test(value) ? Date.parse(`${value.slice(0, 10)}T00:00:00Z`) : Number.NaN);
@@ -150,12 +153,12 @@ export function assessPayment(input: RiskInput): Assessment {
     // approved copy with the same key.
     const key = invoiceNumberKey(invoiceNumber);
     // A number with no letters or digits has no usable key and is only ever compared exactly.
-    const nearPaid = key === "" ? undefined : paidNumbers.find((value) => invoiceNumberKey(value) === key);
-    const nearOpen = nearPaid !== undefined || key === "" ? undefined : openNumbers.find((value) => invoiceNumberKey(value) === key);
+    const nearPaid = key === "" ? undefined : paidNumbers.find((value) => sameInvoiceNumber(invoiceNumber, value));
+    const nearOpen = nearPaid !== undefined || key === "" ? undefined : openNumbers.find((value) => sameInvoiceNumber(invoiceNumber, value));
     if (nearPaid !== undefined || nearOpen !== undefined) {
       const match = pyStrip((nearPaid ?? nearOpen)!);
       signals.push({ code: "POSSIBLE_DUPLICATE_INVOICE", weight: 75, explanation: `Invoice number "${pyStrip(invoiceNumber)}" matches "${match}" from this supplier once letter case, spacing, punctuation and leading zeros are ignored, and that invoice is ${nearPaid !== undefined ? "already paid" : "already open or approved"}. It is probably the same invoice: before approval, an authorized reviewer must record a duplicate review confirming whether they are different invoices.`, severity: "critical" });
-    } else if (rejected.has(casefold(pyStrip(invoiceNumber))) || (key !== "" && [...rejected].some((value) => invoiceNumberKey(value) === key))) {
+    } else if (rejected.has(casefold(pyStrip(invoiceNumber))) || (key !== "" && [...rejected].some((value) => sameInvoiceNumber(invoiceNumber, value)))) {
       signals.push({ code: "PREVIOUSLY_REJECTED_INVOICE", weight: 40, explanation: "A copy of this supplier invoice number was rejected before. Independently verify this resubmission before approval.", severity: "review" });
     }
   }
@@ -193,9 +196,8 @@ export function assessPayment(input: RiskInput): Assessment {
   // Weight 0: it is shown as evidence but never changes the score or the workflow (recurring same-amount invoices are normal).
   if (!signals.some((signal) => signal.code.includes("DUPLICATE"))) {
     const day = isoDay(input.invoiceDate);
-    const key = invoiceNumberKey(invoiceNumber);
     const twin = Number.isNaN(day) ? undefined : [...(input.otherOpenInvoiceDetails ?? [])].find((other) =>
-      other.amountCents === amountCents && invoiceNumberKey(other.invoiceNumber) !== key &&
+      other.amountCents === amountCents && !sameInvoiceNumber(invoiceNumber, other.invoiceNumber) &&
       Math.abs(isoDay(other.invoiceDate) - day) <= SAME_AMOUNT_WINDOW_DAYS * DAY_MS);
     if (twin) {
       signals.push({ code: "SAME_AMOUNT_RECENT_INVOICE", weight: 0, explanation: `This supplier also has invoice "${pyStrip(twin.invoiceNumber)}" for the same amount (${amountText(amountCents)}) dated ${twin.invoiceDate.slice(0, 10)}, within ${SAME_AMOUNT_WINDOW_DAYS} days of this one. Check that this is not the same invoice under a new number.`, severity: "review" });
