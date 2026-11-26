@@ -7,3 +7,5 @@ This version has breaking changes — APIs, conventions, and file structure may 
 This block is written and re-added by `next dev` — verify at `node_modules/next/dist/server/lib/generate-agent-files.js`. Removing it from a diff only re-creates the uncommitted change; committing it with your work keeps the tree clean.
 
 <!-- END:nextjs-agent-rules -->
+
+Follow the root `AGENTS.md` localization requirements on every frontend and user-facing backend change. The four catalogs are in `src/lib/i18n/messages`, and the glossary, formatting conventions and workflow are in `../docs/localization.md`. Check localized output in context, including Hebrew RTL and narrow layouts, and keep the CI checks active.

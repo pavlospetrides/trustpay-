@@ -1,15 +1,16 @@
+import { sourceText } from "../../i18n/core";
 import { createCipheriv, createDecipheriv, createHmac, randomBytes } from "node:crypto";
 
 export function normalizeIban(value: string): string {
   const iban = value.replace(/\s+/g, "").toUpperCase();
-  if (!/^[A-Z]{2}[0-9]{2}[A-Z0-9]{11,30}$/.test(iban)) throw new Error("A valid IBAN is required");
+  if (!/^[A-Z]{2}[0-9]{2}[A-Z0-9]{11,30}$/.test(iban)) throw new Error(sourceText("a-valid-iban-is-required"));
   const rearranged = iban.slice(4) + iban.slice(0, 4);
   let remainder = 0;
   for (const char of rearranged) {
     const digits = /[A-Z]/.test(char) ? String(char.charCodeAt(0) - 55) : char;
     for (const digit of digits) remainder = (remainder * 10 + Number(digit)) % 97;
   }
-  if (remainder !== 1) throw new Error("Invalid IBAN check digits");
+  if (remainder !== 1) throw new Error(sourceText("invalid-iban-check-digits"));
   return iban;
 }
 
@@ -36,7 +37,7 @@ export class AccountProtector {
   static fromEnvironment(): AccountProtector {
     const encryption = process.env.TRUSTPAY_IBAN_ENCRYPTION_KEY;
     const fingerprint = process.env.TRUSTPAY_IBAN_FINGERPRINT_KEY;
-    if (!encryption || !fingerprint) throw new Error("PostgreSQL mode requires both server-only IBAN keys");
+    if (!encryption || !fingerprint) throw new Error(sourceText("postgresql-mode-requires-both-server-only-iban-keys"));
     if (!/^(?:[A-Za-z0-9+/]{4})*(?:[A-Za-z0-9+/]{2}==|[A-Za-z0-9+/]{3}=)?$/.test(encryption) || !/^(?:[A-Za-z0-9+/]{4})*(?:[A-Za-z0-9+/]{2}==|[A-Za-z0-9+/]{3}=)?$/.test(fingerprint)) throw new Error("IBAN keys must be base64-encoded 32-byte values");
     return new AccountProtector(Buffer.from(encryption, "base64"), Buffer.from(fingerprint, "base64"));
   }

@@ -1,3 +1,4 @@
+import { sourceText } from "../../i18n/core";
 import OpenAI from "openai";
 import { zodTextFormat } from "openai/helpers/zod";
 import { z } from "zod";
@@ -32,7 +33,7 @@ export class OpenAIInvoiceProvider {
   }
 
   async explain(evidence: { risk_score: number; risk_level: string; historical_payment_count: number; current_account: string; previous_account: string; signals: string[] }): Promise<string> {
-    if (!/^••••(?: [A-Z0-9]{4})?$/.test(evidence.current_account) || !(/^••••(?: [A-Z0-9]{4})?$/.test(evidence.previous_account) || evidence.previous_account === "New supplier")) throw new ProviderUnavailable("Unmasked account evidence is not allowed");
+    if (!/^••••(?: [A-Z0-9]{4})?$/.test(evidence.current_account) || !(/^••••(?: [A-Z0-9]{4})?$/.test(evidence.previous_account) || evidence.previous_account === sourceText("new-supplier"))) throw new ProviderUnavailable("Unmasked account evidence is not allowed");
     try {
       const response = await this.client.responses.parse({
         model: this.model, store: false, text: { format: zodTextFormat(explanationSchema, "risk_explanation") },

@@ -1,3 +1,4 @@
+import { sourceText } from "./i18n/core";
 export type InvoiceDraftFields = {
   supplier_name: string | null;
   registration_number: string | null;
@@ -50,9 +51,9 @@ const accepted: Record<string, string[]> = {
 
 export function validateInvoiceFile(file: Pick<File, "name" | "type" | "size">): string | null {
   const extension = file.name.split(".").pop()?.toLowerCase() || "";
-  if (!accepted[file.type]?.includes(extension)) return "Choose a PDF, PNG, or JPEG invoice.";
-  if (file.size < 1) return "The invoice file is empty.";
-  if (file.size > 10 * 1024 * 1024) return "Invoice files must be 10 MB or smaller.";
+  if (!accepted[file.type]?.includes(extension)) return sourceText("choose-a-pdf-png-or-jpeg-invoice");
+  if (file.size < 1) return sourceText("the-invoice-file-is-empty");
+  if (file.size > 10 * 1024 * 1024) return sourceText("invoice-files-must-be-10-mb-or-smaller");
   return null;
 }
 

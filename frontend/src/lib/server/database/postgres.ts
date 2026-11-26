@@ -1,3 +1,4 @@
+import { sourceText } from "../../i18n/core";
 import { Pool, types, type PoolClient } from "pg";
 import { readFileSync } from "node:fs";
 
@@ -32,7 +33,7 @@ declare global { var trustpayPool: Pool | undefined }
 export function poolConfig(dsn: string, ca?: string): { connectionString: string; ssl?: { ca: string; rejectUnauthorized: true } } {
   const url = new URL(dsn);
   const hostedPooler = url.hostname.endsWith(".pooler.supabase.com");
-  if (hostedPooler && !ca) throw new Error("A Supabase CA certificate is required for verified PostgreSQL TLS");
+  if (hostedPooler && !ca) throw new Error(sourceText("a-supabase-ca-certificate-is-required-for-verified"));
   if (!ca) return { connectionString: dsn };
   url.searchParams.delete("sslmode");
   url.searchParams.delete("sslrootcert");

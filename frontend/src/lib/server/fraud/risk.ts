@@ -1,3 +1,4 @@
+import { sourceText } from "../../i18n/core";
 export interface RiskSignal {
   code: string;
   weight: number;
@@ -97,8 +98,8 @@ function ratioOneDecimal(amount: number, typicalTwice: number): string {
 
 export function assessPayment(input: RiskInput): Assessment {
   const { invoiceNumber, currentAccount, amountCents } = input;
-  if (!Number.isSafeInteger(amountCents) || amountCents <= 0) throw new Error("amount_cents must be positive");
-  if (!pyStrip(invoiceNumber) || !pyStrip(currentAccount)) throw new Error("invoice_number and current_account are required");
+  if (!Number.isSafeInteger(amountCents) || amountCents <= 0) throw new Error(sourceText("amount-cents-must-be-positive"));
+  if (!pyStrip(invoiceNumber) || !pyStrip(currentAccount)) throw new Error(sourceText("invoice-number-and-current-account-are-required"));
 
   const accounts = [...input.previousAccounts].filter((account) => pyStrip(account)).map(normalizedAccount);
   const amounts = [...input.previousPaidAmountsCents].filter((amount) => amount > 0);
@@ -108,41 +109,41 @@ export function assessPayment(input: RiskInput): Assessment {
   const signals: RiskSignal[] = [];
 
   if (paid.has(casefold(pyStrip(invoiceNumber)))) {
-    signals.push({ code: "DUPLICATE_PAID_INVOICE", weight: 100, explanation: "This supplier's invoice number matches a previously paid invoice. A second payment must be blocked.", severity: "critical" });
+    signals.push({ code: "DUPLICATE_PAID_INVOICE", weight: 100, explanation: sourceText("this-supplier-s-invoice-number-matches-a-previously"), severity: "critical" });
   } else if (open.has(casefold(pyStrip(invoiceNumber)))) {
-    signals.push({ code: "DUPLICATE_OPEN_INVOICE", weight: 100, explanation: "This supplier's invoice number matches another invoice that is already open or approved. Only one copy may be approved; reject one before continuing.", severity: "critical" });
+    signals.push({ code: "DUPLICATE_OPEN_INVOICE", weight: 100, explanation: sourceText("this-supplier-s-invoice-number-matches-another-invoice"), severity: "critical" });
   } else if (rejected.has(casefold(pyStrip(invoiceNumber)))) {
-    signals.push({ code: "PREVIOUSLY_REJECTED_INVOICE", weight: 40, explanation: "A copy of this supplier invoice number was rejected before. Independently verify this resubmission before approval.", severity: "review" });
+    signals.push({ code: "PREVIOUSLY_REJECTED_INVOICE", weight: 40, explanation: sourceText("a-copy-of-this-supplier-invoice-number-was"), severity: "review" });
   }
   if (accounts.length) {
     const counts = new Map<string, number>();
     for (const account of accounts) counts.set(account, (counts.get(account) ?? 0) + 1);
     const canonical = [...counts.keys()].sort().reduce((best, account) => (counts.get(account)! > counts.get(best)! ? account : best));
     if (normalizedAccount(currentAccount) !== canonical && input.accountVerifiedOn) {
-      signals.push({ code: "BANK_ACCOUNT_VERIFIED_CHANGE", weight: 25, explanation: `The payment destination differs from the account used in ${counts.get(canonical)} of ${accounts.length} prior supplier payments, but it was independently verified on ${input.accountVerifiedOn}. Check that evidence before approval.`, severity: "review" });
+      signals.push({ code: "BANK_ACCOUNT_VERIFIED_CHANGE", weight: 25, explanation: sourceText("risk.account-verified", { p0: counts.get(canonical), p1: accounts.length, p2: input.accountVerifiedOn }), severity: "review" });
     } else if (normalizedAccount(currentAccount) !== canonical) {
-      signals.push({ code: "BANK_ACCOUNT_CHANGED", weight: 75, explanation: `The payment destination differs from the account used in ${counts.get(canonical)} of ${accounts.length} prior supplier payments. Independently verify the new account.`, severity: "critical" });
+      signals.push({ code: "BANK_ACCOUNT_CHANGED", weight: 75, explanation: sourceText("risk.account-changed", { p0: counts.get(canonical), p1: accounts.length }), severity: "critical" });
     }
   } else {
-    signals.push({ code: "NEW_SUPPLIER_OR_NO_HISTORY", weight: 45, explanation: "No historical payments were found for this supplier. Confirm identity and payment instructions before approval.", severity: "review" });
+    signals.push({ code: "NEW_SUPPLIER_OR_NO_HISTORY", weight: 45, explanation: sourceText("no-historical-payments-were-found-for-this-supplier"), severity: "review" });
   }
   if (amounts.length >= 3) {
     const typicalTwice = medianTwice(amounts);
     const ratio = ratioOneDecimal(amountCents, typicalTwice);
     const typical = pythonGrouped2(typicalTwice / 2 / 100);
     if (BigInt(amountCents) * 4n >= BigInt(typicalTwice) * 5n) {
-      signals.push({ code: "LARGE_AMOUNT_DEVIATION", weight: 65, explanation: `Amount is ${ratio}× the median of ${amounts.length} historical payments (€${typical}).`, severity: "review" });
+      signals.push({ code: "LARGE_AMOUNT_DEVIATION", weight: 65, explanation: sourceText("risk.large-amount", { p0: ratio, p1: amounts.length, p2: typical }), severity: "review" });
     } else if (BigInt(amountCents) * 8n >= BigInt(typicalTwice) * 7n) {
-      signals.push({ code: "ELEVATED_AMOUNT", weight: 40, explanation: `Amount is ${ratio}× the historical median (€${typical}).`, severity: "review" });
+      signals.push({ code: "ELEVATED_AMOUNT", weight: 40, explanation: sourceText("risk.elevated-amount", { p0: ratio, p1: typical }), severity: "review" });
     }
   }
   const mismatches = input.identityMismatches ?? [];
   const strong = mismatches.filter((field) => field !== "supplier_name");
   if (strong.length) {
-    signals.push({ code: "SUPPLIER_IDENTITY_MISMATCH", weight: 50, explanation: `The invoice's ${strong.map((field) => field.replace("_", " ")).join(" and ")} does not match the selected supplier record. Confirm who issued this invoice before approval.`, severity: "review" });
+    signals.push({ code: "SUPPLIER_IDENTITY_MISMATCH", weight: 50, explanation: sourceText("risk.identity-mismatch", { p0: strong.map((field) => field.replace("_", " ")).join(" and ") }), severity: "review" });
   }
   if (mismatches.includes("supplier_name")) {
-    signals.push({ code: "SUPPLIER_NAME_MISMATCH", weight: 20, explanation: "The supplier name on the invoice differs from the selected supplier record.", severity: "review" });
+    signals.push({ code: "SUPPLIER_NAME_MISMATCH", weight: 20, explanation: sourceText("the-supplier-name-on-the-invoice-differs-from"), severity: "review" });
   }
   const score = Math.min(100, signals.reduce((sum, signal) => sum + signal.weight, 0));
   const duplicate = signals.some((signal) => signal.code === "DUPLICATE_PAID_INVOICE" || signal.code === "DUPLICATE_OPEN_INVOICE");
@@ -151,7 +152,7 @@ export function assessPayment(input: RiskInput): Assessment {
     level: score >= 75 ? "critical" : score >= 40 ? "review" : "low",
     recommended_status: duplicate ? "blocked" : score >= 40 ? "needs_review" : "ready",
     signals,
-    reason: signals[0]?.explanation ?? "Account, invoice reference and amount are consistent with the available historical data.",
+    reason: signals[0]?.explanation ?? sourceText("account-invoice-reference-and-amount-are-consistent-with"),
     kind: duplicate ? "duplicate" : signals.some((signal) => signal.code === "BANK_ACCOUNT_CHANGED" || signal.code === "BANK_ACCOUNT_VERIFIED_CHANGE") ? "iban" : signals.some((signal) => signal.code === "LARGE_AMOUNT_DEVIATION" || signal.code === "ELEVATED_AMOUNT") ? "amount" : signals.length ? "new" : "normal",
   };
 }

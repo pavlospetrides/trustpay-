@@ -1,5 +1,7 @@
 "use client";
 
+import { sourceText, type MessageKey } from "@/lib/i18n/core";
+import { useI18n } from "@/lib/i18n/provider";
 import Link from "next/link";
 import { useParams, useRouter } from "next/navigation";
 import { useCallback, useState, type FormEvent } from "react";
@@ -10,20 +12,22 @@ import { missingReviewFields } from "@/lib/intake";
 import { useApi } from "@/hooks/use-api";
 import { ErrorState, Loading, PageHeading, Panel } from "@/components/ui/primitives";
 
-const labels: { name: keyof InvoiceDraftFields; label: string; type?: string }[] = [
-  { name: "supplier_name", label: "Supplier name" },
-  { name: "registration_number", label: "Registration number" },
-  { name: "vat_number", label: "VAT number" },
-  { name: "invoice_number", label: "Invoice number" },
-  { name: "invoice_date", label: "Invoice date", type: "date" },
-  { name: "due_date", label: "Due date", type: "date" },
-  { name: "total_amount", label: "Total amount", type: "text" },
-  { name: "currency", label: "Currency" },
-  { name: "iban", label: "Destination IBAN" },
-  { name: "payment_reference", label: "Payment reference" },
+const labels: { name: keyof InvoiceDraftFields; label: MessageKey; type?: string }[] = [
+  { name: "supplier_name", label: "supplier-name" },
+  { name: "registration_number", label: "registration-number" },
+  { name: "vat_number", label: "vat-number" },
+  { name: "invoice_number", label: "invoice-number" },
+  { name: "invoice_date", label: "invoice-date", type: "date" },
+  { name: "due_date", label: "due-date", type: "date" },
+  { name: "total_amount", label: "total-amount", type: "text" },
+  { name: "currency", label: "currency" },
+  { name: "iban", label: "destination-iban" },
+  { name: "payment_reference", label: "payment-reference" },
 ];
 
 export default function InvoiceIntakeReview() {
+  const { t, p, number, message: localizeMessage } = useI18n();
+
   const { id } = useParams<{ id: string }>();
   const router = useRouter();
   const load = useCallback(() => api.intake(id), [id]);
@@ -43,8 +47,8 @@ export default function InvoiceIntakeReview() {
 
   async function retry() {
     setBusy(true); setError(""); setMessage("");
-    try { const updated = await api.retryIntake(id); setEdited(null); draft.setData(updated); setMessage("Extraction retried. Review the proposed fields."); }
-    catch (cause) { setError(cause instanceof Error ? cause.message : "Extraction retry failed"); }
+    try { const updated = await api.retryIntake(id); setEdited(null); draft.setData(updated); setMessage(sourceText("extraction-retried-review-the-proposed-fields")); }
+    catch (cause) { setError(cause instanceof Error ? cause.message : sourceText("extraction-retry-failed")); }
     finally { setBusy(false); }
   }
 
@@ -56,7 +60,7 @@ export default function InvoiceIntakeReview() {
       const link = document.createElement("a");
       link.href = url; link.download = `invoice-${id}`; link.click();
       setTimeout(() => URL.revokeObjectURL(url), 1000);
-    } catch (cause) { setError(cause instanceof Error ? cause.message : "Document download failed"); }
+    } catch (cause) { setError(cause instanceof Error ? cause.message : sourceText("document-download-failed")); }
   }
 
   async function save(event: FormEvent<HTMLFormElement>) {
@@ -64,18 +68,18 @@ export default function InvoiceIntakeReview() {
     if (!fields || busy) return;
     setBusy(true); setError(""); setMessage("");
     try {
-      const updated = await api.reviewIntake(id, fields, supplierId === "new" ? null : supplierId, supplierId === "new");
+      const updated = await api.reviewIntake(id, { ...fields, total_amount: fields.total_amount?.replace(",", ".") ?? null }, supplierId === "new" ? null : supplierId, supplierId === "new");
       setEdited(null);
       draft.setData(updated);
-      setMessage("Reviewed fields saved. Run fraud analysis when ready.");
-    } catch (cause) { setError(cause instanceof Error ? cause.message : "Could not save corrections"); }
+      setMessage(sourceText("reviewed-fields-saved-run-fraud-analysis-when-ready"));
+    } catch (cause) { setError(cause instanceof Error ? cause.message : sourceText("could-not-save-corrections")); }
     finally { setBusy(false); }
   }
 
   async function analyze() {
     setBusy(true); setError(""); setMessage("");
     try { const invoice = await api.analyzeIntake(id); router.push(`/app/payments/${encodeURIComponent(invoice.id)}`); }
-    catch (cause) { setError(cause instanceof Error ? cause.message : "Risk analysis failed"); setBusy(false); }
+    catch (cause) { setError(cause instanceof Error ? cause.message : sourceText("risk-analysis-failed")); setBusy(false); }
   }
 
   if (draft.loading && !draft.data) return <Loading/>;
@@ -83,32 +87,32 @@ export default function InvoiceIntakeReview() {
   if (!intake || !fields) return null;
   const missing = missingReviewFields(fields);
   return <>
-    <Link className="back-link" href="/app/payments/new"><ArrowLeft size={17}/> New assessment</Link>
-    <PageHeading title="Review extracted invoice" description="Confirm every field before the server risk engine evaluates this invoice."/>
+    <Link className="back-link" href="/app/payments/new"><ArrowLeft size={17}/> {t("new-assessment")}</Link>
+    <PageHeading title={t("review-extracted-invoice")} description={t("confirm-every-field-before-the-server-risk-engine")}/>
     <div className="intake-review-grid"><Panel className="intake-review-panel">
-      <div className="section-head"><div><span className="overline">EXTRACTION / {intake.method === "openai_vision" ? "VISION MODEL" : "LOCAL PDF TEXT"}</span><h2>Proposed invoice fields</h2><p>Highlighted fields need your attention. An extraction is never an approval.</p></div><FileCheck2 size={25} aria-hidden="true"/></div>
-      {intake.status === "provider_unavailable" && <div className="notice danger">Visual extraction is unavailable. Enter the fields manually or retry when the provider is configured.</div>}
-      {intake.status === "analyzed" && intake.invoice_id && <div className="notice success">Assessment saved. <Link href={`/app/payments/${encodeURIComponent(intake.invoice_id)}`}>Open the risk result</Link>.</div>}
+      <div className="section-head"><div><span className="overline">{t("extraction")} {intake.method === "openai_vision" ? t("vision-model") : t("local-pdf-text")}</span><h2>{t("proposed-invoice-fields")}</h2><p>{t("highlighted-fields-need-your-attention-an-extraction-is")}</p></div><FileCheck2 size={25} aria-hidden="true"/></div>
+      {intake.status === "provider_unavailable" && <div className="notice danger">{t("visual-extraction-is-unavailable-enter-the-fields-manually")}</div>}
+      {intake.status === "analyzed" && intake.invoice_id && <div className="notice success">{t("assessment-saved")} <Link href={`/app/payments/${encodeURIComponent(intake.invoice_id)}`}>{t("open-the-risk-result")}</Link>.</div>}
       <form className="assessment-form" onSubmit={save}><div className="intake-fields">
         {labels.map(({ name, label, type }) => <label key={name} className={intake.uncertain_fields.includes(name) || missing.includes(name) ? "field-uncertain" : ""}>
-          {label}{intake.uncertain_fields.includes(name) && <small>Check extracted value</small>}
-          <input name={name} type={type || "text"} value={fields[name] ?? ""}
+          {t(label)}{intake.uncertain_fields.includes(name) && <small>{t("check-extracted-value")}</small>}
+          <input name={name} type={type || "text"} dir={["iban", "currency", "total_amount", "invoice_date", "due_date"].includes(name) ? "ltr" : "auto"} inputMode={name === "total_amount" ? "decimal" : undefined} value={fields[name] ?? ""}
             required={(["supplier_name", "invoice_number", "invoice_date", "total_amount", "currency", "iban"] as string[]).includes(name)}
             disabled={busy || intake.status === "analyzed"}
             onChange={event => setEdited({ id, fields: { ...fields, [name]: event.target.value || null } })}/>
         </label>)}
-      </div><label>Supplier match<select value={supplierId} required disabled={busy || intake.status === "analyzed"} onChange={event => setSelectedSupplier({ id, value: event.target.value })}>
-        <option value="">Choose a supplier</option>
-        {suppliers.data?.map(s => <option value={s.id} key={s.id}>{s.name} · {s.payment_count} payments</option>)}
-        <option value="new">Confirm as new supplier · no payment history</option>
-      </select><small>Confirm the supplier independently. A new supplier is flagged for review.</small></label>
-      {error && <div className="notice danger" role="alert">{error}</div>}
-      {message && <div className="notice success" role="status">{message}</div>}
-      <div className="intake-actions"><button className="button secondary" type="submit" disabled={busy || intake.status === "analyzed" || missing.length > 0 || !supplierId}>Save corrections</button>
-        <button className="button primary" type="button" disabled={busy || intake.status !== "reviewed"} onClick={() => void analyze()}>{busy ? "Working…" : "Analyze risk"}</button></div>
+      </div><label>{t("supplier-match")}<select value={supplierId} required disabled={busy || intake.status === "analyzed"} onChange={event => setSelectedSupplier({ id, value: event.target.value })}>
+        <option value="">{t("choose-a-supplier-2")}</option>
+        {suppliers.data?.map(s => <option value={s.id} key={s.id}>{s.name} · {p("supplier-payment-count", s.payment_count)}</option>)}
+        <option value="new">{t("confirm-as-new-supplier-no-payment-history")}</option>
+      </select><small>{t("confirm-the-supplier-independently-a-new-supplier-is")}</small></label>
+      {error && <div className="notice danger" role="alert">{localizeMessage(error)}</div>}
+      {message && <div className="notice success" role="status">{localizeMessage(message)}</div>}
+      <div className="intake-actions"><button className="button secondary" type="submit" disabled={busy || intake.status === "analyzed" || missing.length > 0 || !supplierId}>{t("save-corrections")}</button>
+        <button className="button primary" type="button" disabled={busy || intake.status !== "reviewed"} onClick={() => void analyze()}>{busy ? t("working") : t("analyze-risk")}</button></div>
       </form>
-    </Panel><aside className="intake-review-side"><Panel><h2>Original evidence</h2><p>Private file · {(intake.size_bytes / 1024).toFixed(0)} KB</p><button className="button quiet full" type="button" onClick={() => void download()}>Download original</button><button className="button quiet full" type="button" disabled={busy || intake.status === "analyzed" || intake.status === "reviewed" || intake.extraction_attempts >= 3} onClick={() => void retry()}><RotateCcw size={16}/> Retry extraction</button></Panel>
-      <Panel><h2>What happens next?</h2><p>TrustPay checks the confirmed IBAN, duplicate invoice number, and amount against this organization’s supplier history.</p><p>Scores are review priorities, not fraud probabilities. Approval remains server controlled.</p></Panel>
+    </Panel><aside className="intake-review-side"><Panel><h2>{t("original-evidence")}</h2><p>{t("private-file")} {number(Math.round(intake.size_bytes / 1024))} {t("kb")}</p><button className="button quiet full" type="button" onClick={() => void download()}>{t("download-original")}</button><button className="button quiet full" type="button" disabled={busy || intake.status === "analyzed" || intake.status === "reviewed" || intake.extraction_attempts >= 3} onClick={() => void retry()}><RotateCcw size={16}/> {t("retry-extraction")}</button></Panel>
+      <Panel><h2>{t("what-happens-next")}</h2><p>{t("trustpay-checks-the-confirmed-iban-duplicate-invoice-number")}</p><p>{t("scores-are-review-priorities-not-fraud-probabilities-approval")}</p></Panel>
     </aside></div>
   </>;
 }

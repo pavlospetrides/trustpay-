@@ -1,13 +1,16 @@
 "use client";
+import { useI18n } from "@/lib/i18n/provider";
 import { useEffect, useRef, type PointerEvent } from "react";
 import { ShieldCheck, ArrowUpRight } from "lucide-react";
 import type { Invoice } from "@/lib/types";
-import { euro, statusLabel } from "@/lib/api";
+
 import { Badge } from "./ui/primitives";
 
 /** The supplied liquid card's layered surface and tilt, adapted to an invoice.
  * No checkout fields, WebGL loop, or payment animation are used. */
 export function AssessmentCard({ invoice }: { invoice: Invoice }) {
+  const { t, euro, statusLabel, riskText } = useI18n();
+
   const card = useRef<HTMLDivElement>(null);
   const frame = useRef<number | null>(null);
   useEffect(() => () => { if (frame.current !== null) cancelAnimationFrame(frame.current); }, []);
@@ -30,10 +33,10 @@ export function AssessmentCard({ invoice }: { invoice: Invoice }) {
   return <div className="card-scene" onPointerMove={move} onPointerLeave={reset}>
     <div ref={card} className={`assessment-card assessment-${invoice.status}`}>
       <div className="card-shine" aria-hidden="true"/>
-      <div className="card-head"><span><ShieldCheck size={20}/> TRUST ASSESSMENT</span><ArrowUpRight size={19} aria-hidden="true"/></div>
-      <div className="card-middle"><span className="card-label">REVIEW PRIORITY</span><div><strong>{invoice.risk}</strong><span>/ 100</span></div><p>{invoice.reason}</p></div>
-      <div className="card-bottom"><div><span className="card-label">SUPPLIER</span><strong>{invoice.supplier}</strong></div><div><span className="card-label">INVOICE · AMOUNT</span><strong>{invoice.invoice} · {euro(invoice.amount_cents)}</strong></div></div>
+      <div className="card-head"><span><ShieldCheck size={20}/> {t("trust-assessment")}</span><ArrowUpRight size={19} aria-hidden="true"/></div>
+      <div className="card-middle"><span className="card-label">{t("review-priority.heading")}</span><div><strong>{invoice.risk}</strong><span>/ 100</span></div><p>{riskText(invoice.reason)}</p></div>
+      <div className="card-bottom"><div><span className="card-label">{t("supplier.heading")}</span><strong><bdi>{invoice.supplier}</bdi></strong></div><div><span className="card-label">{t("invoice-amount")}</span><strong>{invoice.invoice} · {euro(invoice.amount_cents)}</strong></div></div>
     </div>
-    <div className="card-caption"><Badge status={invoice.status}/><span>{statusLabel(invoice.status)} · No payment sent</span></div>
+    <div className="card-caption"><Badge status={invoice.status}/><span>{statusLabel(invoice.status)} {t("no-payment-suffix")}</span></div>
   </div>;
 }

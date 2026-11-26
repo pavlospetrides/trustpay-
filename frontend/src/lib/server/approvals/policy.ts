@@ -1,3 +1,4 @@
+import { sourceText } from "../../i18n/core";
 export interface Principal { userId: string; organizationId: string; role: string }
 export interface TransitionRow { status: string; score: number; verifiedBy: string | null; createdBy: string | null }
 export type TransitionAction = "verify" | "approve" | "hold" | "release" | "reject";
@@ -11,20 +12,20 @@ export function authorizeTransition(principal: Principal, action: TransitionActi
     release: ["owner", "admin", "analyst"],
     reject: ["owner", "admin", "analyst", "approver"],
   };
-  if (!roles[action].includes(principal.role)) throw new Error("Role is not authorized for this action");
-  if (row.status === "rejected") throw new Error("Rejected invoices are final");
+  if (!roles[action].includes(principal.role)) throw new Error(sourceText("role-is-not-authorized-for-this-action"));
+  if (row.status === "rejected") throw new Error(sourceText("rejected-invoices-are-final"));
   if (action === "verify") {
-    if (["approved", "blocked"].includes(row.status) || row.verifiedBy) throw new Error("Invoice cannot be verified in its current state");
-    if (row.createdBy === principal.userId) throw new Error("Invoice creator cannot independently verify it");
+    if (["approved", "blocked"].includes(row.status) || row.verifiedBy) throw new Error(sourceText("invoice-cannot-be-verified-in-its-current-state"));
+    if (row.createdBy === principal.userId) throw new Error(sourceText("invoice-creator-cannot-independently-verify-it"));
   } else if (action === "approve") {
-    if (row.status !== "ready") throw new Error("Invoice is not ready for approval");
-    if (row.score >= 40 && !row.verifiedBy) throw new Error("Risky invoice needs independent verification");
-    if (row.verifiedBy === principal.userId || row.createdBy === principal.userId) throw new Error("Maker-checker separation failed");
+    if (row.status !== "ready") throw new Error(sourceText("invoice-is-not-ready-for-approval"));
+    if (row.score >= 40 && !row.verifiedBy) throw new Error(sourceText("risky-invoice-needs-independent-verification"));
+    if (row.verifiedBy === principal.userId || row.createdBy === principal.userId) throw new Error(sourceText("maker-checker-separation-failed"));
   } else if (action === "release") {
-    if (row.status !== "hold") throw new Error("Invoice cannot be released because it is not on hold");
-    if (row.createdBy === principal.userId) throw new Error("Maker-checker separation failed");
+    if (row.status !== "hold") throw new Error(sourceText("invoice-cannot-be-released-because-it-is-not"));
+    if (row.createdBy === principal.userId) throw new Error(sourceText("maker-checker-separation-failed"));
   } else if (action === "hold" && ["approved", "blocked"].includes(row.status)) {
-    throw new Error("Invoice cannot be placed on hold");
+    throw new Error(sourceText("invoice-cannot-be-placed-on-hold"));
   }
   // reject: allowed from every other state, including approved, so an approval can be withdrawn before payment.
 }

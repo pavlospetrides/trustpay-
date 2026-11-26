@@ -22,6 +22,10 @@ jobs:
         working-directory: frontend
       - run: npm run test && npm run typecheck && npm run lint && npm run build
         working-directory: frontend
+      - run: npx playwright install --with-deps chromium
+        working-directory: frontend
+      - run: npm run test:i18n:e2e
+        working-directory: frontend
 
   windows-install:
     runs-on: windows-latest

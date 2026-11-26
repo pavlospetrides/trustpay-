@@ -1,3 +1,4 @@
+import { sourceText } from "../../i18n/core";
 import { DatabaseSync } from "node:sqlite";
 import { mkdirSync } from "node:fs";
 import { dirname } from "node:path";
@@ -58,7 +59,7 @@ export class DemoStore {
       }
     }
     for (const invoice of demoInvoices) this.insertAssessment(invoice.id, invoice.supplier_id, invoice.number, invoice.amount_cents, invoice.creditor_account, invoice.date, invoice.source);
-    this.auditEvent(null, "demo-seed", "DEMO_IMPORT", "Synthetic Jinius invoice batch imported", "4 synthetic invoices assessed using local rule engine; no Jinius API call");
+    this.auditEvent(null, "demo-seed", "DEMO_IMPORT", sourceText("synthetic-jinius-invoice-batch-imported"), sourceText("4-synthetic-invoices-assessed-using-local-rule-engine"));
   }
   reset(): void {
     this.transaction(() => {
@@ -79,12 +80,12 @@ export class DemoStore {
     const history = this.history(supplierId);
     const assessment = assessPayment({ invoiceNumber, currentAccount: account, amountCents, previousAccounts: history.map((row) => row.creditor_account), previousPaidAmountsCents: history.map((row) => row.amount_cents), previouslyPaidInvoices: history.map((row) => row.invoice_number), otherOpenInvoices: this.invoiceNumbers(supplierId, false), rejectedInvoices: this.invoiceNumbers(supplierId, true), accountVerifiedOn: this.trustedVerification(supplierId, account, amountCents, []) });
     this.db.prepare("INSERT INTO invoices (id,tenant_id,supplier_id,invoice_number,amount_cents,creditor_account,invoice_date,source,risk_score,risk_level,risk_kind,reason,signals_json,status,verified_by,verified_note,approved_by,updated_at) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)").run(id, TENANT, supplierId, invoiceNumber, amountCents, account, date, source, assessment.score, assessment.level, assessment.kind, assessment.reason, JSON.stringify(assessment.signals), assessment.recommended_status, null, null, null, now());
-    this.auditEvent(id, "trustpay-risk-engine", "ASSESSED", `Payment risk assessed · ${assessment.level}`, `${id} · ${assessment.score}/100 · ${assessment.reason}`);
+    this.auditEvent(id, "trustpay-risk-engine", "ASSESSED", sourceText("payment-risk-assessed", { p0: assessment.level }), sourceText("audit.assessment-detail", { p0: id, p1: assessment.score, p2: assessment.reason }));
   }
   createAssessment(item: AssessmentInput): Invoice {
     this.transaction(() => {
-      if (!this.db.prepare("SELECT 1 FROM suppliers WHERE id=? AND tenant_id=?").get(item.supplier_id, TENANT)) throw new Error("Unknown demo supplier");
-      if (this.db.prepare("SELECT 1 FROM invoices WHERE id=?").get(item.id)) throw new Error("An assessment with this ID already exists");
+      if (!this.db.prepare("SELECT 1 FROM suppliers WHERE id=? AND tenant_id=?").get(item.supplier_id, TENANT)) throw new Error(sourceText("unknown-demo-supplier"));
+      if (this.db.prepare("SELECT 1 FROM invoices WHERE id=?").get(item.id)) throw new Error(sourceText("an-assessment-with-this-id-already-exists"));
       this.insertAssessment(item.id, item.supplier_id, item.invoice_number, item.amount_cents, item.creditor_account, item.invoice_date, "manual_demo_submission");
     });
     return this.invoice(item.id);
@@ -93,14 +94,14 @@ export class DemoStore {
     const history = this.history(row.supplier_id);
     const accounts = history.map((item) => item.creditor_account);
     const signals = JSON.parse(row.signals_json) as Invoice["signals"];
-    return { id: row.id, supplier_id: row.supplier_id, supplier: row.name, short: row.short_name, invoice: row.invoice_number, amount_cents: row.amount_cents, amount: row.amount_cents / 100, iban: mask(row.creditor_account), previous: accounts.length ? mask(canonical(accounts)) : "New supplier", history: history.length, date: row.invoice_date, risk: row.risk_score, level: row.risk_level, kind: row.risk_kind, reason: row.reason, signals, notes: signals.length ? signals.map((signal) => signal.explanation) : [row.reason], status: row.status, verified: Boolean(row.verified_by), verified_by: row.verified_by, approved_by: row.approved_by, reference: row.source === "jinius_demo_adapter" ? "Synthetic Jinius demo" : "Manual demo assessment", source: row.source };
+    return { id: row.id, supplier_id: row.supplier_id, supplier: row.name, short: row.short_name, invoice: row.invoice_number, amount_cents: row.amount_cents, amount: row.amount_cents / 100, iban: mask(row.creditor_account), previous: accounts.length ? mask(canonical(accounts)) : sourceText("new-supplier"), history: history.length, date: row.invoice_date, risk: row.risk_score, level: row.risk_level, kind: row.risk_kind, reason: row.reason, signals, notes: signals.length ? signals.map((signal) => signal.explanation) : [row.reason], status: row.status, verified: Boolean(row.verified_by), verified_by: row.verified_by, approved_by: row.approved_by, reference: row.source === "jinius_demo_adapter" ? sourceText("synthetic-jinius-demo") : sourceText("manual-demo-assessment"), source: row.source };
   }
   invoices(): Invoice[] {
     return (this.db.prepare("SELECT i.*,s.name,s.short_name FROM invoices i JOIN suppliers s ON s.id=i.supplier_id WHERE i.tenant_id=? ORDER BY i.invoice_date DESC,i.id DESC").all(TENANT) as Row[]).map((row) => this.present(row));
   }
   invoice(id: string): Invoice {
     const row = this.db.prepare("SELECT i.*,s.name,s.short_name FROM invoices i JOIN suppliers s ON s.id=i.supplier_id WHERE i.id=? AND i.tenant_id=?").get(id, TENANT) as Row | undefined;
-    if (!row) throw new Error("Invoice not found");
+    if (!row) throw new Error(sourceText("invoice-not-found"));
     return this.present(row);
   }
   suppliers(): Supplier[] {
@@ -116,49 +117,49 @@ export class DemoStore {
   transition(id: string, action: TransitionAction, note: string): Invoice {
     this.transaction(() => {
       const row = this.db.prepare("SELECT * FROM invoices WHERE id=? AND tenant_id=?").get(id, TENANT) as Row | undefined;
-      if (!row) throw new Error("Invoice not found");
+      if (!row) throw new Error(sourceText("invoice-not-found"));
       let actor: string;
       let title: string;
       let detail: string;
-      if (row.status === "rejected") throw new Error("Rejected invoices are final");
+      if (row.status === "rejected") throw new Error(sourceText("rejected-invoices-are-final"));
       if (action === "verify") {
-        if (row.risk_kind === "duplicate" || row.status === "approved" || row.status === "blocked") throw new Error("Blocked or already approved payments cannot be verified");
-        if (row.verified_by) throw new Error("Independent verification has already been recorded");
-        if (note.trim().length < 12) throw new Error("Independent verification must include an evidence note (12+ characters)");
+        if (row.risk_kind === "duplicate" || row.status === "approved" || row.status === "blocked") throw new Error(sourceText("blocked-or-already-approved-payments-cannot-be-verified"));
+        if (row.verified_by) throw new Error(sourceText("independent-verification-has-already-been-recorded"));
+        if (note.trim().length < 12) throw new Error(sourceText("independent-verification-must-include-an-evidence-note-12"));
         actor = "risk.analyst@demo.local";
         // Verifying a held invoice records the evidence but keeps the hold until someone releases it.
         this.db.prepare("UPDATE invoices SET verified_by=?,verified_note=?,status=?,updated_at=? WHERE id=?").run(actor, note.trim(), row.status === "hold" ? "hold" : "ready", now(), id);
-        title = "Independent callback recorded · simulated";
-        detail = `${id} · analyst supplied evidence: ${note.trim()}`;
+        title = sourceText("independent-callback-recorded-simulated");
+        detail = sourceText("analyst-supplied-evidence", { p0: id, p1: note.trim() });
       } else if (action === "approve") {
-        if (row.status !== "ready") throw new Error("Payment cannot be approved unless ready for review");
-        if (row.risk_score >= 40 && !row.verified_by) throw new Error("Risky payment requires independent verification before approval");
+        if (row.status !== "ready") throw new Error(sourceText("payment-cannot-be-approved-unless-ready-for-review"));
+        if (row.risk_score >= 40 && !row.verified_by) throw new Error(sourceText("risky-payment-requires-independent-verification-before-approval"));
         actor = "finance.manager@demo.local";
-        if (row.verified_by === actor) throw new Error("Maker-checker separation failed");
+        if (row.verified_by === actor) throw new Error(sourceText("maker-checker-separation-failed"));
         // A score lowered by another invoice's verification is approvable only while that verification still stands.
-        if (!row.verified_by && String(row.signals_json).includes("BANK_ACCOUNT_VERIFIED_CHANGE") && !this.trustedVerification(row.supplier_id, row.creditor_account, row.amount_cents, [actor])) throw new Error("Risky payment requires independent verification: the account verification it relied on is no longer valid for this approval (withdrawn, expired, or recorded by you)");
-        if (this.db.prepare("SELECT 1 FROM invoices WHERE tenant_id=? AND supplier_id=? AND lower(invoice_number)=lower(?) AND status='approved' AND id<>?").get(TENANT, row.supplier_id, row.invoice_number, id)) throw new Error("Invoice cannot be approved because another copy is already approved");
+        if (!row.verified_by && String(row.signals_json).includes("BANK_ACCOUNT_VERIFIED_CHANGE") && !this.trustedVerification(row.supplier_id, row.creditor_account, row.amount_cents, [actor])) throw new Error(sourceText("risky-payment-requires-independent-verification-the-account-verification"));
+        if (this.db.prepare("SELECT 1 FROM invoices WHERE tenant_id=? AND supplier_id=? AND lower(invoice_number)=lower(?) AND status='approved' AND id<>?").get(TENANT, row.supplier_id, row.invoice_number, id)) throw new Error(sourceText("invoice-cannot-be-approved-because-another-copy-is"));
         this.db.prepare("UPDATE invoices SET status='approved',approved_by=?,updated_at=? WHERE id=?").run(actor, now(), id);
-        title = "Internal approval recorded — NO TRANSFER";
-        detail = `${id} · finance manager approved demo decision; no bank payment initiated`;
+        title = sourceText("audit.demo-approval");
+        detail = sourceText("finance-manager-approved-demo-decision-no-bank-payment", { p0: id });
       } else if (action === "release") {
-        if (row.status !== "hold") throw new Error("Invoice cannot be released because it is not on hold");
+        if (row.status !== "hold") throw new Error(sourceText("invoice-cannot-be-released-because-it-is-not"));
         actor = "risk.analyst@demo.local";
         this.db.prepare("UPDATE invoices SET status=?,updated_at=? WHERE id=?").run(releasedStatus({ status: row.status, score: row.risk_score, verifiedBy: row.verified_by as string | null, createdBy: null }), now(), id);
-        title = "Hold released";
-        detail = `${id} · returned to the review queue`;
+        title = sourceText("hold-released-2");
+        detail = sourceText("returned-to-the-review-queue", { p0: id });
       } else if (action === "reject") {
-        if (note.trim().length < 12) throw new Error("Rejection reason must have at least 12 characters");
+        if (note.trim().length < 12) throw new Error(sourceText("rejection-reason-must-have-at-least-12-characters"));
         actor = "finance.manager@demo.local";
         this.db.prepare("UPDATE invoices SET status='rejected',updated_at=? WHERE id=?").run(now(), id);
-        title = row.status === "approved" ? "Approval withdrawn — invoice rejected" : "Invoice rejected";
-        detail = `${id} · reason: ${note.trim()}`;
+        title = row.status === "approved" ? sourceText("approval-withdrawn-invoice-rejected") : sourceText("invoice-rejected");
+        detail = sourceText("reason", { p0: id, p1: note.trim() });
       } else {
-        if (row.status === "approved" || row.status === "blocked") throw new Error("This invoice cannot be placed on hold");
+        if (row.status === "approved" || row.status === "blocked") throw new Error(sourceText("this-invoice-cannot-be-placed-on-hold"));
         actor = "risk.analyst@demo.local";
         this.db.prepare("UPDATE invoices SET status='hold',updated_at=? WHERE id=?").run(now(), id);
-        title = "Invoice manually placed on hold";
-        detail = `${id} · further investigation required`;
+        title = sourceText("invoice-manually-placed-on-hold");
+        detail = sourceText("further-investigation-required", { p0: id });
       }
       this.auditEvent(id, actor, action.toUpperCase(), title, detail);
     });
