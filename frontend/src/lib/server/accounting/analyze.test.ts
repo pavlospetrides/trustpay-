@@ -116,6 +116,13 @@ describe("accounting review of an invoice", () => {
     expect(result.journal!.lines[0]).toMatchObject({ account: "Professional services", debit_cents: 12_400 });
   });
 
+  it("tells tablet computers from medicine tablets", () => {
+    const totals = { net_cents: 1_000, vat_cents: 0, gross_cents: 1_000 };
+    expect(review({ totals, lines: [{ description: "Paracetamol tablets 500mg", net_cents: 1_000 }] }).treatment.code).not.toBe("domestic_reverse_charge");
+    expect(review({ totals, lines: [{ description: "Tablet computers for field staff", net_cents: 1_000 }] }).treatment.code).toBe("domestic_reverse_charge");
+    expect(review({ totals, lines: [{ description: "iPads, 64 GB", net_cents: 1_000 }] }).treatment.code).toBe("domestic_reverse_charge");
+  });
+
   it("spots a possible domestic reverse charge for construction work", () => {
     const work = { description: "Renovation of warehouse roof, labour and materials", net_cents: 200_000 };
     const noVat = review({ totals: { net_cents: 200_000, vat_cents: 0, gross_cents: 200_000 }, lines: [work] });

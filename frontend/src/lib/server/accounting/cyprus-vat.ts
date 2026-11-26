@@ -68,9 +68,9 @@ export function vatOn(netCents: number, basisPoints: number): number {
 
 export const formatPercent = (basisPoints: number) => `${basisPoints / 100}%`;
 
-/** Words in a line description that point at a Cyprus domestic reverse-charge category. */
+/** Words in a line description that point at a Cyprus domestic reverse-charge category. A bare "tablet" is not used: it also means medicine. */
 export const DOMESTIC_REVERSE_CHARGE_HINTS: readonly { article: string; label: string; words: RegExp }[] = [
   { article: "Article 11B", label: "construction, repair, maintenance or demolition of civil works", words: /\b(construction|renovation|demolition|building works?|civil works?|plaster(?:ing)?|tiling|roofing|excavation|scaffolding)\b/iu },
-  { article: "Article 11E", label: "mobile phones, tablets and similar devices", words: /\b(mobile phones?|smartphones?|tablets?|iphone|ipad|phablets?)\b/iu },
+  { article: "Article 11E", label: "mobile phones, tablets and similar devices", words: /\b(mobile phones?|smartphones?|tablet (?:computers?|devices?|pcs?)|iphones?|ipads?|phablets?)\b/iu },
   { article: "scrap and waste", label: "scrap and waste materials", words: /\b(scrap|waste metal|metal waste)\b/iu },
 ];

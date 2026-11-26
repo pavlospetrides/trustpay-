@@ -52,7 +52,7 @@ JSON, amounts in integer cents, rates as text (`"19"`, `"19%"`).
 | `INPUT_VAT_RECOVERABILITY` | review | domestic VAT charged to a VAT-registered Cyprus buyer: confirm taxable use and no blocked item before claiming |
 | `MISSING_SUPPLIER_VAT_NUMBER` | review | VAT charged without the supplier's VAT number |
 | `ZERO_RATED_OR_EXEMPT` | review | a Cyprus supplier charges no VAT |
-| `POSSIBLE_DOMESTIC_REVERSE_CHARGE` | review | construction (Article 11B), scrap, or phones and tablets (Article 11E) wording from a Cyprus supplier, buyer VAT-registered |
+| `POSSIBLE_DOMESTIC_REVERSE_CHARGE` | review | construction (Article 11B), scrap, or phones and tablet computers (Article 11E) wording (a bare "tablet" is ignored because it also means medicine) from a Cyprus supplier, buyer VAT-registered |
 | `EU_REVERSE_CHARGE` | review | an EU supplier charges no VAT: the buyer self-accounts |
 | `FOREIGN_VAT_CHARGED` | review | foreign VAT is not recoverable through the Cyprus return |
 | `NON_EU_SUPPLY` | review | services: reverse charge; goods: import VAT at customs |
