@@ -6,7 +6,7 @@ import { useParams, useRouter } from "next/navigation";
 import { useCallback, useEffect, useState, type FormEvent } from "react";
 import { ArrowLeft, FileCheck2, RotateCcw } from "lucide-react";
 import { api } from "@/lib/api";
-import { sourceText, type MessageKey } from "@/lib/i18n/core";
+import { sourceText, type Localizer, type MessageKey } from "@/lib/i18n/core";
 import { intakeDocumentTypes, intakeEvidenceLabels } from "@/lib/i18n/intake-labels";
 import { useI18n } from "@/lib/i18n/provider";
 import type { InvoiceDraftFields } from "@/lib/intake";
@@ -28,6 +28,11 @@ const labels: { name: keyof InvoiceDraftFields; label: MessageKey; type?: string
   { name: "payment_reference", label: "payment-reference" },
 ];
 type EvidenceValue = UniversalDocument["supplier"]["legal_name"];
+function supportingText(value: string | null | undefined, t: Localizer["t"]) {
+  const key = "intake.ocr-account-candidate";
+  return value === sourceText(key) ? t(key) : value;
+}
+
 function EvidenceEditor({ title, entries, path, disabled, onChange }: { title: string; entries: [string, EvidenceValue][]; path: (string | number)[]; disabled: boolean; onChange: (path: (string | number)[], value: string) => void }) {
   const { t, number } = useI18n();
   if (!entries.length) return null;
@@ -36,7 +41,7 @@ function EvidenceEditor({ title, entries, path, disabled, onChange }: { title: s
       const label = intakeEvidenceLabels[key] ? t(intakeEvidenceLabels[key]) : key.replaceAll("_", " ");
       return <label key={key}>{label}<input type="text" dir={["iban", "account_number", "bic", "email", "telephone"].includes(key) ? "ltr" : "auto"}
         aria-label={t("intake.evidence-field-label", { p0: title, p1: label })} value={evidence.value ?? ""} disabled={disabled} onChange={(event) => onChange([...path, key], event.target.value)}/>
-        {evidence.supporting_text && <small className="field-evidence">{t("intake.evidence-page", { p0: evidence.page ? number(evidence.page) : "?", p1: evidence.supporting_text })}</small>}
+        {evidence.supporting_text && <small className="field-evidence">{t("intake.evidence-page", { p0: evidence.page ? number(evidence.page) : "?", p1: supportingText(evidence.supporting_text, t) })}</small>}
       </label>;
     })}
   </div></section>;
@@ -219,7 +224,7 @@ export default function InvoiceIntakeReview() {
             disabled={busy || intake.status === "analyzed"}
             onChange={event => { setEdited({ id, fields: { ...fields, [name]: event.target.value || null } }); if (name === "total_amount") changePayableAmount(event.target.value); }}/>
           {evidenceByField?.[name]?.supporting_text && <small className="field-evidence">{t("intake.source-page", {
-            p0: evidenceByField[name]?.page ? number(evidenceByField[name].page) : "?", p1: evidenceByField[name]?.supporting_text,
+            p0: evidenceByField[name]?.page ? number(evidenceByField[name].page) : "?", p1: supportingText(evidenceByField[name]?.supporting_text, t),
           })}</small>}
           {original?.[name] && original[name] !== fields[name] && <small className="field-evidence">{t("intake.originally-extracted", { p0: original[name] })}</small>}
         </label>)}

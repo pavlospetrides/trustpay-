@@ -2,6 +2,12 @@
 
 **Start here:** [handoff for 26 November onward](handoff-2026-11-25.md) lists what merged on 25 November, the owner actions still open and the work order.
 
+## Internationalization and hosted verification — 26 November 2026
+
+Theodoros’s [draft PR #45](https://github.com/pavlospetrides/trustpay-/pull/45) contains reviewed merge `fb55f80`, including `main` at `f45db07`. The API routes, server implementation and migrations match that base. English, Greek, Russian and Hebrew pass the localized dashboard, invoice and structured OCR review checks. Local verification used synthetic SQLite and simulated intake responses. The local suite passed 279 tests, including 75 Python parity tests, and 15 Chromium localization tests.
+
+The team designated a replacement Supabase project after the previous project reached its egress quota. The team reports that the new schema, private storage bucket, organizations and test users are in place. Hosted verification is pending the project's CA certificate, privately entered credentials and Theodoros’s confirmation. The next verification uses TLS certificate checks and confirms HTTP 200 from `/api/health` in `supabase-postgres` mode before the authorized synthetic workflows. Use the existing schema and accounts.
+
 ## Follow-ups before the redesign — 26 November 2026
 
 Plan and merge order: [follow-ups and PR readiness](plans/2026-11-26-followups-and-pr-readiness.md).
@@ -9,17 +15,17 @@ Plan and merge order: [follow-ups and PR readiness](plans/2026-11-26-followups-a
 - **Accounts (#32):** dashes are ignored like spaces in both stores, and `normalizeIban` checks the SWIFT registry length per country (a 24-character "CY" IBAN is rejected; CY is 28). Countries outside the table keep the generic 15–34 rule.
 - **Signals (#36):** weight-0 notes no longer show a "+0" badge.
 - **Parity:** the Python parity test now compares the HTTP status of every step. The one deliberate change is intake upload in SQLite mode (403 instead of FastAPI's 422 form error).
-- **Merge order:** #43 and #37 merged on 26 November; then #38, then this PR. #38 conflicts with #37 only in `docs/STATUS.md` and `handler.test.ts` (keep both). This PR moves #37's five duplicate-review database expectations from 403 to 409. #37 added `supabase/migrations/20261126000200_duplicate_reviews.sql`, which the hosted development project needs applied by hand.
+- **Merge order:** #43 and #37 merged on 26 November, followed by #38 and #44. #44 updates five duplicate-review database expectations from 403 to 409. #39 was closed unmerged because the universal reader was already included.
 
 ## Offline OCR candidate (#42, merged in [#43](https://github.com/pavlospetrides/trustpay-/pull/43))
 
-PDF.js native text and local English/Greek OCR now feed text and word layout to the existing OpenAI universal analyzer when `TRUSTPAY_INVOICE_READER=ocr` is set. Vision remains the default and explicit external-document opt-in still applies. Actual OCR tests cover scanned PDFs, Greek/English text, rotation, blur, low confidence, and native/OCR conflict; the 14-document pack and two unseen generated invoices were measured. The final pack run matched 456/456 measured fields and 14/14 payable totals versus a fresh Vision 456/456. Earlier OCR runs exposed a missed alternative account and one model response that omitted 18 line items; evidence checks and a bounded multi-page retry were added. Estimated API token cost was $0.2394 OCR versus $0.2228 Vision. App, database, and Python-free Windows installation CI passed on commit `fd3b4e3` ([run 45802848853](https://github.com/pavlospetrides/trustpay-/actions/runs/45802848853)). See [evaluation and limits](invoice-ocr-evaluation.md). Hosted signed-in interface verification still awaits restoration of the Supabase egress quota. Human review is required before merging.
+PDF.js native text and local English/Greek OCR now feed text and word layout to the existing OpenAI universal analyzer when `TRUSTPAY_INVOICE_READER=ocr` is set. Vision remains the default and explicit external-document opt-in still applies. Actual OCR tests cover scanned PDFs, Greek/English text, rotation, blur, low confidence, and native/OCR conflict; the 14-document pack and two unseen generated invoices were measured. The final pack run matched 456/456 measured fields and 14/14 payable totals versus a fresh Vision 456/456. Earlier OCR runs exposed a missed alternative account and one model response that omitted 18 line items; evidence checks and a bounded multi-page retry were added. Estimated API token cost was $0.2394 OCR versus $0.2228 Vision. App, database, and Python-free Windows installation CI passed on commit `fd3b4e3` ([run 45802848853](https://github.com/pavlospetrides/trustpay-/actions/runs/45802848853)). See [evaluation and limits](invoice-ocr-evaluation.md). Hosted signed-in verification awaits configuration of the replacement project.
 
 ## Hosted development auth blocker — 26 November 2026
 
-The designated Supabase development project reported `exceed_egress_quota` during a signed-in Playwright rerun on 26 November. The test stopped at login before uploading an invoice. The project owner must restore service by resolving the quota or spend cap before hosted browser checks can resume. Earlier signed-in invoice review runs passed; local unit checks and live synthetic OpenAI extraction are separate from this hosted auth failure. This is unmerged branch evidence from `fix/invoice-extraction-fallback-20261125`.
+The previous Supabase development project reported `exceed_egress_quota` during a signed-in Playwright rerun on 26 November. The test stopped at login before uploading an invoice. Earlier signed-in invoice review runs passed. This is unmerged branch evidence from `fix/invoice-extraction-fallback-20261125`. Future hosted checks target the team’s replacement project.
 
-## Accounting review and Cyprus VAT (review item 11, branch `feat/cyprus-vat-accounting`, not yet merged)
+## Accounting review and Cyprus VAT (review item 11, merged in [#38](https://github.com/pavlospetrides/trustpay-/pull/38))
 
 A first slice of the accounting copilot: `POST /api/v1/accounting/review` checks an invoice's amounts and suggests how to book it. Deterministic TypeScript in `frontend/src/lib/server/accounting/`; no AI, nothing stored, nothing posted. Details, rules and sources: [accounting-review.md](accounting-review.md).
 - **Confirmed errors** (the document does not add up): net + VAT ≠ total, quantity × price ≠ line, line or summary VAT ≠ rate, lines or summary ≠ totals, a Cyprus supplier stating a rate that did not exist on the invoice date.
@@ -41,7 +47,7 @@ One matching rule for invoice numbers, `invoiceNumberKey` in `fraud/risk.ts`: le
 - `SAME_AMOUNT_RECENT_INVOICE`: same supplier, exact same amount and a different number within 7 days of the invoice date. It is a **weight-0 note**: shown as evidence, listed last, never changes the score or the workflow. The changed-IBAN demo still scores 75.
 - One deliberate parity change: Python treated a number with a leading byte-order mark as new; it now matches. It is listed in `INTENDED_RISK_CHANGES` in the parity test.
 
-Migration `20261126000200_duplicate_reviews.sql` adds the append-only `duplicate_reviews` table (RLS read for members, no client writes). **The hosted development project needs it applied by hand** (never `db push`). Until then, only invoices with a normalisation-only match are affected (their approval and review fail); every other invoice, including the 75-point demo, is unchanged, because the table is read only when such a match exists.
+Migration `20261126000200_duplicate_reviews.sql` adds the append-only `duplicate_reviews` table (RLS read for members, no client writes). The previous hosted project required manual schema preparation. The replacement project uses the schema provisioned by the team. The table is read only for invoices with a normalisation-only match.
 
 ## Verified-account trust and supplier identity checks (#32, merged in [#33](https://github.com/pavlospetrides/trustpay-/pull/33), `df6b51a`)
 
@@ -54,7 +60,7 @@ No migration. Follow-ups: identity checks for Jinius and manual invoices once th
 
 ## Duplicate approvals, release hold and reject (#30, merged in [#31](https://github.com/pavlospetrides/trustpay-/pull/31), `a16713c`)
 
-From the financial-controls review. A second non-rejected copy of a supplier invoice number is blocked as a duplicate when assessed. Approval re-checks under a supplier lock, so two copies cannot both be approved, including copies created earlier. A copy rejected earlier needs independent verification. Held invoices can be released (not by their creator); verifying a held invoice keeps the hold. Reject needs a reason, is final, and also withdraws an approval before payment. **The hosted development project needs `supabase/migrations/20261126000100_invoice_rejection.sql` applied by hand before reject works there.** Follow-ups: Jinius revisions that change the invoice number, invoice-number normalisation (review item 6), and typed 403/409 errors.
+From the financial-controls review. A second non-rejected copy of a supplier invoice number is blocked as a duplicate when assessed. Approval re-checks under a supplier lock, so two copies cannot both be approved, including copies created earlier. A copy rejected earlier needs independent verification. Held invoices can be released (not by their creator); verifying a held invoice keeps the hold. Reject needs a reason, is final, and also withdraws an approval before payment. The previous hosted project required manual schema preparation for rejection. Follow-ups at merge included Jinius revisions that change the invoice number, invoice-number normalisation (review item 6), and typed 403/409 errors.
 
 ## Windows installation fix (#25, merged, `b5e3d2e`)
 

@@ -760,5 +760,6 @@
   "api.duplicate-decision-required": "6cbab78474d4b82bb5f17510977a878b571d98d58bae3e6cd2719b87da030276",
   "api.duplicate-decision-blocked": "df4441845eabc26adad414969ca47e3b07aee5b3e190de3d044d4e9e55720e40",
   "api.duplicate-separation": "81cd2c217d745d7867f84b79c144512441397849e77f4dbd28cf6f9ef5f90a40",
-  "api.duplicate-match-record": "55a049df93f538789141c52212c535da784b8916e7ba0dcef224477850ea42c0"
+  "api.duplicate-match-record": "55a049df93f538789141c52212c535da784b8916e7ba0dcef224477850ea42c0",
+  "intake.ocr-account-candidate": "35afd75cc1389f03dd8361c98ba003b40bcbe00baf1f3d080a4905b4bf80c0aa"
 }

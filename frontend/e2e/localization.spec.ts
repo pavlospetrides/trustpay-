@@ -238,6 +238,7 @@ test("structured OCR review preserves the API data across the four languages", a
   const field = (value: string | null = null, supporting_text: string | null = null) => ({
     value, source_value: value, supporting_text, page: supporting_text ? 2 : null, uncertain: false,
   });
+  const candidateNote = "OCR account candidate; verify against original";
   const party = {
     legal_name: field(), trading_name: field(), registration_number: field(), vat_number: field(),
     address: field(), country: field(), email: field(), telephone: field(),
@@ -256,7 +257,7 @@ test("structured OCR review preserves the API data across the four languages", a
       amount_paid: field(), outstanding_balance: field(),
     },
     accounts: [{
-      iban: field(fields.iban), account_number: field(), bank_name: field(), bic: field(), beneficiary_name: field(), instructions: field(),
+      iban: field(fields.iban, candidateNote), account_number: field(), bank_name: field(), bic: field(), beneficiary_name: field(), instructions: field(),
     }],
     vat_breakdown: [{ rate: field("19"), net_amount: field(), vat_amount: field() }],
     line_items: [{
@@ -279,6 +280,7 @@ test("structured OCR review preserves the API data across the four languages", a
       expect(received.reviewed_document).toMatchObject({
         document_type: "commercial_invoice",
         financial: { gross_total: { value: "8420,01", source_value: fields.total_amount } },
+        accounts: [{ iban: { supporting_text: candidateNote } }],
         line_items: document.line_items,
       });
       expect(received.classification_override_reason).toBe("Synthetic commercial invoice classification");
@@ -289,6 +291,7 @@ test("structured OCR review preserves the API data across the four languages", a
   });
   await page.goto("/app/intakes/" + id);
   await expect(page.getByRole("alert").filter({ hasText: "Η ποιότητα της αναγνώρισης κειμένου δεν επαρκεί." })).toBeVisible();
+  await expect(page.getByText("Λογαριασμός που εντοπίστηκε με OCR", { exact: false }).first()).toBeVisible();
   await expect(page.getByRole("heading", { name: "Γραμμή τιμολογίου 1", exact: true })).toBeVisible();
   await page.getByRole("combobox", { name: "Τύπος εγγράφου", exact: true }).selectOption("commercial_invoice");
   await page.getByLabel("Αιτιολόγηση αλλαγής ταξινόμησης").fill("Synthetic commercial invoice classification");
@@ -302,9 +305,12 @@ test("structured OCR review preserves the API data across the four languages", a
   await expect(iban).toHaveAttribute("dir", "ltr");
   await expect(page.getByRole("button", { name: "הערכת סיכון" })).toBeEnabled();
   await expect(page.getByRole("heading", { name: /שורה.*1.*בחשבונית/ })).toBeVisible();
+  await expect(page.getByText("חשבון שזוהה ב־OCR", { exact: false }).first()).toBeVisible();
   await chooseLanguage(page, "שפה עברית", "Русский");
   await expect(page.getByRole("heading", { name: "Позиция 1", exact: true })).toBeVisible();
+  await expect(page.getByText("Счёт найден при распознавании текста", { exact: false }).first()).toBeVisible();
   await chooseLanguage(page, "Язык Русский", "English");
   await expect(page.getByRole("heading", { name: "Line item 1", exact: true })).toBeVisible();
+  await expect(page.getByText(candidateNote, { exact: false }).first()).toBeVisible();
   await expect(page.getByText("Total payable 8,420.00", { exact: false }).first()).toBeVisible();
 });
