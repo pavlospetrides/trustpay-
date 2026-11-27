@@ -816,5 +816,10 @@
   "api.duplicate-separation": "Подтвердить, что счета разные, и согласовать счёт должны разные сотрудники",
   "api.duplicate-match-record": "«{p0}» ({p1})",
   "intake.ocr-account-candidate": "Счёт найден при распознавании текста. Сверьте его с оригиналом.",
+  "overview-hosted-description": "Текущие проверки счетов вашей организации.",
+  "organization-data-from-server": "По данным вашей организации",
+  "no-critical-cases-in-current-organization": "В вашей организации нет критических случаев.",
+  "insights-hosted-description": "Сводка текущих проверок вашей организации. Баллы показывают приоритет проверки, а не вероятность мошенничества.",
+  "payments-hosted-description": "Найдите проверку вашей организации и откройте нужный случай.",
   "sample-workflow-preview": "ПРИМЕР ПРОВЕРКИ СЧЁТА"
 }

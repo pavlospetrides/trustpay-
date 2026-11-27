@@ -13,11 +13,13 @@ export default defineConfig({
   timeout: 90_000,
   use: { baseURL: url, channel: process.env.TRUSTPAY_PLAYWRIGHT_CHANNEL || undefined },
   webServer: {
-    command: `npm run start -- --port ${port}`,
+    command: `npm run build && npm run start -- --port ${port}`,
     url: `${url}/api/health`,
     env: {
       TRUSTPAY_BACKEND: "sqlite",
       TRUSTPAY_DATABASE_URL: "",
+      NEXT_PUBLIC_SUPABASE_URL: "",
+      NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY: "",
       TRUSTPAY_DB_PATH: join(tmpdir(), `trustpay-i18n-${randomUUID()}.sqlite3`),
     },
     reuseExistingServer: false,

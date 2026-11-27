@@ -13,6 +13,8 @@ supabase test db
 
 The hosted development schema was applied manually and has no reconciled CLI migration history. **Do not run `supabase db push` against that project.** Do not reset, migrate, or seed a shared or production project. The optional `supabase/seed.sql` contains a session guard and only synthetic fixture data; it is never run at application startup. Set `trustpay.allow_synthetic_seed=development` only for an explicitly disposable or designated development database and create Auth users and memberships separately.
 
+For the designated hosted development project's 14-payment Aegean fixture, run `node scripts/seed-hosted-demo-history.mjs` from `frontend` to inspect the dry run, then add `--apply` to insert the synthetic history. The script requires `TRUSTPAY_ENVIRONMENT=development`, verified PostgreSQL TLS, and exactly one staffed organization named as a demo or synthetic organization. It preserves existing rows, refuses non-fixture paid history, and can be run again without duplicating the 14 payments. It never runs during app startup and does not create Auth users or send payments.
+
 ## Configure one Next.js process
 
 Copy `frontend/.env.local.example` to `frontend/.env.local`. Set `TRUSTPAY_BACKEND=postgres`, the connection URL, Supabase URL and keys, two existing base64 IBAN keys, and the public browser values. `NEXT_PUBLIC_*` variables contain only the Supabase URL and publishable key. The database URL, secret key, encryption keys, and OpenAI key stay server-side. Preserve the existing encryption and fingerprint keys to read prior ciphertext.

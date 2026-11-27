@@ -816,5 +816,10 @@
   "api.duplicate-separation": "Maker-checker separation failed: the person who confirmed the invoices are distinct cannot approve",
   "api.duplicate-match-record": "\"{p0}\" ({p1})",
   "intake.ocr-account-candidate": "OCR account candidate; verify against original",
+  "overview-hosted-description": "Current invoice assessments for your organization.",
+  "organization-data-from-server": "From your organization's records",
+  "no-critical-cases-in-current-organization": "No critical cases in your organization.",
+  "insights-hosted-description": "A current breakdown of your organization's assessments. Scores show review priority, not fraud probability.",
+  "payments-hosted-description": "Search your organization's assessments and open any case.",
   "sample-workflow-preview": "SAMPLE WORKFLOW PREVIEW"
 }

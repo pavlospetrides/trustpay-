@@ -4,7 +4,7 @@ Source of truth: the Next.js route handler `frontend/src/lib/server/api/handler.
 
 | Method | Path | Notes |
 |---|---|---|
-| GET | `/api/health` | synthetic-local-demo, no bank transfers |
+| GET | `/api/health` | Reports `synthetic-local-demo` or `supabase-postgres`; no bank transfers |
 | GET | `/api/v1/invoices` | invoices with masked accounts, risk, signals, workflow |
 | GET | `/api/v1/invoices/{id}` | invoice detail |
 | POST | `/api/v1/invoices/assess` | creates assessment using the same deterministic TypeScript risk engine |
@@ -23,6 +23,6 @@ Source of truth: the Next.js route handler `frontend/src/lib/server/api/handler.
 | GET | `/api/v1/invoices/{id}/documents/{document_id}` | authorized private download |
 | POST | `/api/v1/demo/reset` | resets synthetic local database |
 
-Important: the bank account fields on invoice read endpoints are **masked**. UI needs no raw historical bank credentials. The amount input uses integer cents on write. Missing real authentication; do not assume frontend can enforce actual roles. Actual verification step is a *simulated evidence record*.
+Important: the bank account fields on invoice read endpoints are **masked**. UI needs no raw historical bank credentials. The amount input uses integer cents on write. PostgreSQL mode verifies Supabase Auth and organization membership on the server for each protected request; SQLite mode is an unauthenticated synthetic demo. The verification step records human evidence, but does not verify bank account ownership.
 
 Four demo invoice IDs: `INV-2409` changed account, `INV-2410` paid duplicate, `INV-2411` amount outlier, `INV-2412` normal.

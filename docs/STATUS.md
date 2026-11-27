@@ -2,6 +2,10 @@
 
 **Start here:** [handoff for 26 November onward](handoff-2026-11-25.md) lists what merged on 25 November, the owner actions still open and the work order.
 
+## Hosted development audit — 27 November 2026
+
+On local branch `audit/full-system-20261127`, a TLS-verified read found that the replacement development project had 16 of 17 repository tables: `duplicate_reviews` was missing. The existing additive `20261126000200_duplicate_reviews.sql` migration was applied in one transaction. A follow-up check found all 17 expected tables, 12 expected indexes, RLS enabled on each public data table, and a private `invoice-documents` bucket. Hosted data had no paid history, so an explicitly synthetic Aegean supplier and 14 paid fixture records were added to the staffed demo organization with the guarded, idempotent `frontend/scripts/seed-hosted-demo-history.mjs`. Existing invoices and suppliers were preserved. The full signed-in workflow still needs private test-account credentials; live Jinius remains unverified.
+
 ## Internationalization and hosted verification — 26 November 2026
 
 Theodoros’s [draft PR #45](https://github.com/pavlospetrides/trustpay-/pull/45) contains reviewed merge `fb55f80`, including `main` at `f45db07`. The API routes, server implementation and migrations match that base. English, Greek, Russian and Hebrew pass the localized dashboard, invoice and structured OCR review checks. Local verification used synthetic SQLite and simulated intake responses. The local suite passed 279 tests, including 75 Python parity tests, and 15 Chromium localization tests.
