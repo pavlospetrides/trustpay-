@@ -36,7 +36,7 @@ Branch: `audit/full-system-20261127`. This records verified work in the designat
 2. Rehearse a new synthetic invoice end to end and record upload, extraction, assessment, verification, approval, audit, and tenant-isolation evidence in `docs/ACCEPTANCE.md`.
 3. Supply the official Jinius sandbox contract and permitted credentials before implementing or claiming live connectivity.
 4. Rotate the database password previously printed into this private session's tool output and update both ignored `.env.local` files.
-5. Authenticate GitHub CLI or provide equivalent repository access to post the issue handoff and open a PR. Human teammate review is required before merge.
+5. Review draft PR #47 (`https://github.com/pavlospetrides/trustpay-/pull/47`) with a human teammate before merge. The local code review findings were fixed in commit `0a339b0`.
 
 ## Startup
 
