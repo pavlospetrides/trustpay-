@@ -30,6 +30,14 @@ function protectAccount(iban) {
 async function main() {
   assert.equal(process.env.TRUSTPAY_ENVIRONMENT, "development", "Only the designated development project may be seeded");
   assert.equal(process.env.TRUSTPAY_BACKEND, "postgres", "PostgreSQL mode is required");
+  const expectedRef = process.argv.find(arg => arg.startsWith("--project-ref="))?.slice("--project-ref=".length);
+  if (process.argv.includes("--apply")) {
+    assert.match(expectedRef ?? "", /^[a-z0-9]{20}$/, "Pass the intended Supabase project ref with --project-ref=... before applying");
+    const authUrl = new URL(process.env.SUPABASE_URL);
+    const databaseUrl = new URL(process.env.TRUSTPAY_DATABASE_URL);
+    assert.equal(authUrl.hostname, `${expectedRef}.supabase.co`, "Supabase Auth is not the intended project");
+    assert.ok(databaseUrl.username.endsWith(`.${expectedRef}`) || databaseUrl.hostname === `db.${expectedRef}.supabase.co`, "PostgreSQL is not the intended project");
+  }
   const ca = readFileSync(process.env.TRUSTPAY_DATABASE_CA_CERT_PATH, "utf8");
   const pool = new Pool({ connectionString: process.env.TRUSTPAY_DATABASE_URL, ssl: { ca, rejectUnauthorized: true }, connectionTimeoutMillis: 10_000 });
   try {
@@ -74,11 +82,25 @@ async function main() {
             where not exists (select 1 from public.payment_records where organization_id=$1 and source='synthetic_demo_fixture' and external_reference=$7)`,
           [organizationId, supplierId, bankAccountId, `AS-HIST-${String(index + 1).padStart(3, "0")}`, (7600 + (index % 3 - 1) * 120).toFixed(2), `2026-09-${String(index + 1).padStart(2, "0")}`, reference]);
         }
-        const result = (await client.query(`select count(*)::int as n from public.payment_records
-          where organization_id=$1 and supplier_id=$2 and source='synthetic_demo_fixture'`, [organizationId, supplierId])).rows[0];
-        assert.equal(result.n, 14, "The synthetic history must contain exactly 14 records");
+        const rows = (await client.query(`select supplier_id,bank_account_id,historical_invoice_number,amount,currency,status,
+          paid_at::date::text as paid_date,external_reference from public.payment_records
+          where organization_id=$1 and source='synthetic_demo_fixture'`, [organizationId])).rows;
+        assert.equal(rows.length, 14, "The synthetic history must contain exactly 14 records");
+        for (let index = 0; index < 14; index++) {
+          const reference = `TRUSTPAY-SYNTHETIC-HIST-${String(index + 1).padStart(2, "0")}`;
+          const matches = rows.filter(row => row.external_reference === reference);
+          assert.equal(matches.length, 1, `Expected one intact fixture record ${reference}`);
+          const row = matches[0];
+          assert.equal(row.supplier_id, supplierId, `Incorrect supplier for ${reference}`);
+          assert.equal(row.bank_account_id, bankAccountId, `Incorrect account for ${reference}`);
+          assert.equal(row.historical_invoice_number, `AS-HIST-${String(index + 1).padStart(3, "0")}`, `Incorrect invoice for ${reference}`);
+          assert.equal(Number(row.amount), 7600 + (index % 3 - 1) * 120, `Incorrect amount for ${reference}`);
+          assert.equal(row.currency, "EUR", `Incorrect currency for ${reference}`);
+          assert.equal(row.status, "paid", `Incorrect status for ${reference}`);
+          assert.equal(row.paid_date, `2026-09-${String(index + 1).padStart(2, "0")}`, `Incorrect paid date for ${reference}`);
+        }
         await client.query("COMMIT");
-        console.log(JSON.stringify({ applied: true, fixturePayments: result.n }));
+        console.log(JSON.stringify({ applied: true, fixturePayments: rows.length }));
       } catch (error) {
         await client.query("ROLLBACK");
         throw error;

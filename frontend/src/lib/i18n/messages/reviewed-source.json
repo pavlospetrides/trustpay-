@@ -767,5 +767,6 @@
   "no-critical-cases-in-current-organization": "ee50659f395a2ce691bb2b23f66cef7692512af423374d574e4ccacb349e2b24",
   "insights-hosted-description": "25e166386af5d5f4a32445cc4aacda8dd4b2db2c05efe68f644083b6df1e6422",
   "payments-hosted-description": "dbae0ef05dd4dece0b410b61bcde84c1b8ae658ee61a19bb3b0386b8cff6faec",
+  "insights-hosted-note": "645e1b4150e1c20fd994a8e1292e32b8626c39b8b37546c8e1d20bfcf8241aba",
   "sample-workflow-preview": "7a4766395707bdfb917769fe7efdf2ac53800c803cfad374bc1e618d5d87596e"
 }

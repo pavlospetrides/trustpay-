@@ -821,5 +821,6 @@
   "no-critical-cases-in-current-organization": "No critical cases in your organization.",
   "insights-hosted-description": "A current breakdown of your organization's assessments. Scores show review priority, not fraud probability.",
   "payments-hosted-description": "Search your organization's assessments and open any case.",
+  "insights-hosted-note": "The API shows current invoices and supplier history, without a dated assessment series. Counts reflect this organization?s records; they do not show trends, savings, or model accuracy.",
   "sample-workflow-preview": "SAMPLE WORKFLOW PREVIEW"
 }

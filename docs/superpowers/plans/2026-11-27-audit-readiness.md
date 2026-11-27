@@ -66,6 +66,6 @@
 
 **Files:** Update `API_CONTRACT.md`, `docs/STATUS.md`, `docs/ACCEPTANCE.md` and an audit report.
 
-- [ ] Run all relevant checks again and inspect the final diff for secrets.
-- [ ] Request independent code review, commit focused changes, and open a PR if GitHub authentication is available.
+- [x] Run all relevant available checks again and inspect the final diff for secrets.
+- [x] Request independent code review and commit focused changes; PR creation awaits GitHub authentication.
 - [ ] Report verified behavior, untested behavior, and remaining owner actions.
