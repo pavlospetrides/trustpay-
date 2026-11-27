@@ -2,6 +2,10 @@
 
 **Start here:** [handoff for 26 November onward](handoff-2026-11-25.md) lists what merged on 25 November, the owner actions still open and the work order.
 
+## Hosted development audit — 27 November 2026
+
+On local branch `audit/full-system-20261127`, a TLS-verified read found that the replacement development project had 16 of 17 repository tables: `duplicate_reviews` was missing. The existing additive `20261126000200_duplicate_reviews.sql` migration was applied in one transaction. A follow-up check found all 17 expected tables, 12 expected indexes, RLS enabled on each public data table, and a private `invoice-documents` bucket. Hosted data had no paid history, so an explicitly synthetic Aegean supplier and 14 paid fixture records were added to the staffed demo organization with the guarded, idempotent `frontend/scripts/seed-hosted-demo-history.mjs`. Existing invoices and suppliers were preserved. The full signed-in workflow still needs private test-account credentials; live Jinius remains unverified.
+
 ## Internationalization and hosted verification — 26 November 2026
 
 Theodoros’s [draft PR #45](https://github.com/pavlospetrides/trustpay-/pull/45) contains reviewed merge `fb55f80`, including `main` at `f45db07`. The API routes, server implementation and migrations match that base. English, Greek, Russian and Hebrew pass the localized dashboard, invoice and structured OCR review checks. Local verification used synthetic SQLite and simulated intake responses. The local suite passed 279 tests, including 75 Python parity tests, and 15 Chromium localization tests.
@@ -103,6 +107,6 @@ Review rows queued before the record-digest change cannot be resolved; they clea
 
 In Supabase mode, an owner or admin can run **Run sync** on the Integrations page (`POST /api/v1/integrations/jinius/sync`). Each synthetic demo invoice is assessed once through the same deterministic path as uploads and enters the normal maker-checker queue, labelled "Synthetic Jinius demo". Records with an unknown supplier or a missing or invalid IBAN go to human review instead. Runs, counts and safe errors are stored in `sync_runs` and the audit log.
 
-The designated development project's migration history remains unreconciled. Do not run `supabase db push` against it. External OpenAI calls remain unverified because no live key is configured; the official SDK adapter has mocked tests and local PDF text extraction works. The stale FastAPI `docs/openapi.json` export was deleted; [API_CONTRACT.md](../API_CONTRACT.md) lists the current routes and git history keeps the old file. The hosted walkthrough of the merged code is waiting for the project's CA certificate.
+The designated development project's migration history remains unreconciled. Do not run `supabase db push` against it. External OpenAI calls remain unverified because no live key is configured; the official SDK adapter has mocked tests and local PDF text extraction works. The stale FastAPI `docs/openapi.json` export was deleted; [API_CONTRACT.md](../API_CONTRACT.md) lists the current routes and git history keeps the old file. The CA certificate was available for the 27 November TLS-verified audit; the signed-in walkthrough still awaits private test-account credentials.
 
 See [run instructions](../README.md), [Supabase setup](supabase-setup.md), [API matrix](node-migration-checklist.md), and [Jinius boundary](jinius-integration-architecture.md).
